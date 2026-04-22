@@ -266,3 +266,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`вњ… РЎРµСЂРІРµСЂ С–СЃРєРµ Т›РѕСЃС‹Р»РґС‹: http://localhost:${PORT}`));
+
+// Жа?а функция ?шін комментарий
