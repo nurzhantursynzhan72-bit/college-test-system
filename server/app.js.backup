@@ -1,0 +1,297 @@
+const express = require('express');
+const session = require('express-session');
+const path = require('path');
+const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
+const XLSX = require('xlsx');
+
+const app = express();
+const PORT = 3000;
+const DATA_DIR = path.join(__dirname, '../data');
+const CLIENT_DIST_DIR = path.join(__dirname, '../client/dist');
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(session({
+  secret: 'college-test-secret-2024',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 24 * 60 * 60 * 1000 }
+}));
+
+// React build статикалық файлдары
+app.use(express.static(CLIENT_DIST_DIR));
+
+// Data helpers
+function readData(file) {
+  const fp = path.join(DATA_DIR, file);
+  if (!fs.existsSync(fp)) return [];
+  return JSON.parse(fs.readFileSync(fp, 'utf8'));
+}
+function writeData(file, data) {
+  fs.writeFileSync(path.join(DATA_DIR, file), JSON.stringify(data, null, 2));
+}
+
+// Seed default data
+function initData() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) {
+    const admin = { id: uuidv4(), name: 'Admin', email: 'admin@college.kz', phone: '+77001112233', password: bcrypt.hashSync('admin123', 10), role: 'admin', group: '' };
+    const teacher = { id: uuidv4(), name: 'Алмас Бекжанов', email: 'teacher@college.kz', phone: '+77002223344', password: bcrypt.hashSync('teacher123', 10), role: 'teacher', group: '' };
+    const s1 = { id: uuidv4(), name: 'Айгерім Сейткали', email: 'student1@college.kz', phone: '+77003334455', password: bcrypt.hashSync('student123', 10), role: 'student', group: 'БҚ-2405' };
+    const s2 = { id: uuidv4(), name: 'Данияр Ахметов', email: 'student2@college.kz', phone: '+77004445566', password: bcrypt.hashSync('student123', 10), role: 'student', group: 'БҚ-2405' };
+    const s3 = { id: uuidv4(), name: 'Мадина Есова', email: 'student3@college.kz', phone: '+77005556677', password: bcrypt.hashSync('student123', 10), role: 'student', group: 'БҚ-2406' };
+    writeData('users.json', [admin, teacher, s1, s2, s3]);
+  }
+
+  if (!fs.existsSync(path.join(DATA_DIR, 'tests.json'))) {
+    const tests = [
+      {
+        id: uuidv4(),
+        title: 'JavaScript негіздері',
+        subject: 'Бағдарламалау',
+        group: 'БҚ-2405',
+        duration: 20,
+        createdBy: 'teacher@college.kz',
+        createdAt: new Date().toISOString(),
+        active: true,
+        questions: [
+          { id: '1', text: 'JavaScript қандай тіл?', options: ['Компиляцияланатын', 'Интерпретацияланатын', 'Машиналық', 'Ассемблер'], correct: 1 },
+          { id: '2', text: 'console.log() не істейді?', options: ['Файл жазады', 'Деректер базасына жазады', 'Консольге шығарады', 'Элемент жасайды'], correct: 2 },
+          { id: '3', text: 'let және var айырмашылығы?', options: ['Жоқ', 'let блок скоупты', 'var блок скоупты', 'Тек атауы'], correct: 1 },
+          { id: '4', text: 'typeof null нәтижесі?', options: ['null', 'undefined', 'object', 'boolean'], correct: 2 },
+          { id: '5', text: 'Array.push() не істейді?', options: ['Басынан элемент қосады', 'Соңынан элемент қосады', 'Элемент өшіреді', 'Массив сұрыптайды'], correct: 1 },
+          { id: '6', text: '=== vs == айырмашылығы?', options: ['Жоқ айырма', '=== типті де тексереді', '== қатаңырақ', '=== тек сандарға'], correct: 1 },
+          { id: '7', text: 'DOM дегеніміз не?', options: ['Деректер объект моделі', 'Құжат объект моделі', 'Динамикалық объект метод', 'Деректер операция мен'], correct: 1 },
+          { id: '8', text: 'getElementById() қайдан табады?', options: ['Класс бойынша', 'ID бойынша', 'Тег бойынша', 'Атрибут бойынша'], correct: 1 },
+          { id: '9', text: 'JSON.parse() не істейді?', options: ['JSON жасайды', 'JSON жіберіп жібереді', 'JSON строкты объектке айналдырады', 'Объектті жояды'], correct: 2 },
+          { id: '10', text: 'async/await не үшін?', options: ['Синхронды код жазу', 'Асинхронды операцияларды оңай жазу', 'Тек fetch үшін', 'Массив итерациясы'], correct: 1 }
+        ]
+      }
+    ];
+    writeData('tests.json', tests);
+  }
+
+  if (!fs.existsSync(path.join(DATA_DIR, 'results.json'))) {
+    writeData('results.json', []);
+  }
+}
+
+initData();
+
+// ============ AUTH ROUTES ============
+app.post('/api/register', async (req, res) => {
+  const { name, email, phone, password, group } = req.body;
+  if (!name || !email || !phone || !password || !group)
+    return res.json({ success: false, message: 'Барлық өрістерді толтырыңыз' });
+
+  const users = readData('users.json');
+  if (users.find(u => u.email === email))
+    return res.json({ success: false, message: 'Бұл email тіркелген' });
+
+  const user = { id: uuidv4(), name, email, phone, password: bcrypt.hashSync(password, 10), role: 'student', group, createdAt: new Date().toISOString() };
+  users.push(user);
+  writeData('users.json', users);
+  req.session.user = { id: user.id, name, email, role: 'student', group };
+  res.json({ success: true, role: 'student' });
+});
+
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
+  const users = readData('users.json');
+  const user = users.find(u => u.email === email);
+  if (!user || !bcrypt.compareSync(password, user.password))
+    return res.json({ success: false, message: 'Email немесе пароль қате' });
+
+  req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role, group: user.group };
+  res.json({ success: true, role: user.role });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
+});
+
+app.get('/api/me', (req, res) => {
+  if (!req.session.user) return res.json({ loggedIn: false });
+  res.json({ loggedIn: true, user: req.session.user });
+});
+
+// ============ PUBLIC / COMMON ROUTES ============
+app.get('/api/groups', (req, res) => {
+  const users = readData('users.json');
+  const groups = [...new Set(users.filter(u => u.role === 'student' && u.group).map(u => u.group))];
+  res.json({ success: true, groups });
+});
+
+// ============ STUDENT ROUTES ============
+app.get('/api/tests', (req, res) => {
+  if (!req.session.user) return res.json({ success: false });
+  const tests = readData('tests.json');
+  const user = req.session.user;
+
+  let visible;
+  if (user.role === 'student') {
+    visible = tests.filter(t => {
+      if (!t.active) return false;
+      if (!t.group) return false;
+      const targetGroups = t.group.split(',').map(g => g.trim());
+      return targetGroups.includes(user.group);
+    }).map(t => ({ id: t.id, title: t.title, subject: t.subject, duration: t.duration, group: t.group, questionCount: t.questions.length }));
+  } else {
+    visible = tests.map(t => ({ id: t.id, title: t.title, subject: t.subject, duration: t.duration, group: t.group, questionCount: t.questions.length, active: t.active }));
+  }
+  res.json({ success: true, tests: visible });
+});
+
+app.get('/api/test/:id', (req, res) => {
+  if (!req.session.user) return res.json({ success: false });
+  const tests = readData('tests.json');
+  const test = tests.find(t => t.id === req.params.id);
+  if (!test) return res.json({ success: false, message: 'Тест табылмады' });
+
+  const safe = {
+    id: test.id, title: test.title, subject: test.subject, duration: test.duration, group: test.group,
+    questions: test.questions.map(q => ({ id: q.id, text: q.text, options: q.options }))
+  };
+  res.json({ success: true, test: safe });
+});
+
+app.post('/api/submit', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'student')
+    return res.json({ success: false });
+
+  const { testId, answers } = req.body;
+  const tests = readData('tests.json');
+  const test = tests.find(t => t.id === testId);
+  if (!test) return res.json({ success: false });
+
+  let correct = 0;
+  test.questions.forEach(q => {
+    if (answers[q.id] !== undefined && parseInt(answers[q.id]) === q.correct) correct++;
+  });
+
+  const total = test.questions.length;
+  const score = Math.round((correct / total) * 100);
+  const result = {
+    id: uuidv4(),
+    userId: req.session.user.id,
+    userName: req.session.user.name,
+    userEmail: req.session.user.email,
+    userGroup: req.session.user.group,
+    testId, testTitle: test.title,
+    correct, total, score,
+    submittedAt: new Date().toISOString()
+  };
+
+  const results = readData('results.json');
+  results.push(result);
+  writeData('results.json', results);
+  res.json({ success: true, correct, total, score });
+});
+
+app.get('/api/my-results', (req, res) => {
+  if (!req.session.user) return res.json({ success: false });
+  const results = readData('results.json');
+  const mine = results.filter(r => r.userId === req.session.user.id);
+  res.json({ success: true, results: mine });
+});
+
+// ============ TEACHER ROUTES ============
+app.get('/api/teacher/tests', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'teacher')
+    return res.json({ success: false, message: 'Рұқсат жоқ' });
+
+  const tests = readData('tests.json')
+    .filter(t => t.createdBy === req.session.user.email)
+    .map(t => ({
+      id: t.id, title: t.title, subject: t.subject, group: t.group,
+      duration: t.duration, questionCount: t.questions.length,
+      active: t.active, createdAt: t.createdAt
+    }));
+
+  res.json({ success: true, tests });
+});
+
+app.post('/api/teacher/test', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'teacher')
+    return res.json({ success: false, message: 'Рұқсат жоқ' });
+
+  const { title, subject, group, duration, questions } = req.body;
+  if (!title || !group || !questions || questions.length < 1)
+    return res.json({ success: false, message: 'Деректер жетіспейді' });
+
+  const test = { id: uuidv4(), title, subject, group, duration: parseInt(duration) || 20, createdBy: req.session.user.email, createdAt: new Date().toISOString(), active: true, questions };
+  const tests = readData('tests.json');
+  tests.push(test);
+  writeData('tests.json', tests);
+  res.json({ success: true });
+});
+
+app.get('/api/teacher/results', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'teacher')
+    return res.json({ success: false });
+  const results = readData('results.json');
+  const tests = readData('tests.json').filter(t => t.createdBy === req.session.user.email).map(t => t.id);
+  res.json({ success: true, results: results.filter(r => tests.includes(r.testId)) });
+});
+
+app.delete('/api/teacher/test/:id', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'teacher')
+    return res.json({ success: false });
+  let tests = readData('tests.json');
+  tests = tests.filter(t => !(t.id === req.params.id && t.createdBy === req.session.user.email));
+  writeData('tests.json', tests);
+  res.json({ success: true });
+});
+
+// ============ ADMIN ROUTES ============
+function requireAdmin(req, res, next) {
+  if (!req.session.user || req.session.user.role !== 'admin')
+    return res.json({ success: false, message: 'Рұқсат жоқ' });
+  next();
+}
+
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  const users = readData('users.json').map(u => ({ id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, group: u.group, createdAt: u.createdAt }));
+  res.json({ success: true, users });
+});
+
+app.delete('/api/admin/user/:id', requireAdmin, (req, res) => {
+  let users = readData('users.json');
+  users = users.filter(u => u.id !== req.params.id);
+  writeData('users.json', users);
+  res.json({ success: true });
+});
+
+app.get('/api/admin/results', requireAdmin, (req, res) => {
+  res.json({ success: true, results: readData('results.json') });
+});
+
+app.get('/api/admin/export', requireAdmin, (req, res) => {
+  const users = readData('users.json').filter(u => u.role === 'student');
+  const results = readData('results.json');
+
+  const wb = XLSX.utils.book_new();
+
+  const usersData = users.map(u => ({ 'Аты-жөні': u.name, 'Email': u.email, 'Телефон': u.phone, 'Тобы': u.group, 'Тіркелген күні': u.createdAt ? new Date(u.createdAt).toLocaleDateString('kk-KZ') : '' }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usersData), 'Студенттер');
+
+  const resultsData = results.map(r => ({ 'Аты-жөні': r.userName, 'Email': r.userEmail, 'Тобы': r.userGroup, 'Тест': r.testTitle, 'Дұрыс жауап': r.correct, 'Барлығы': r.total, 'Балл (%)': r.score, 'Тапсырған уақыт': new Date(r.submittedAt).toLocaleString('kk-KZ') }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resultsData), 'Нәтижелер');
+
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Disposition', 'attachment; filename="college-results.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+});
+
+// Барлық басқа сұраныстарды React-қа жіберу (SPA)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(CLIENT_DIST_DIR, 'index.html'));
+});
+
+app.listen(PORT, () => console.log(`✅ Сервер іске қосылды: http://localhost:${PORT}`));
