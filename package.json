@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "college-test-system",
   "version": "1.0.0",
   "description": "Колледж онлайн тест жүйесі",
@@ -9,7 +9,7 @@
     "dev:client": "npm --prefix client run dev",
     "dev": "node scripts/dev.js",
     "build:client": "npm --prefix client run build",
-    "build": "npm run build:client"
+    "build": "npm --prefix client install && npm run build:client"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
