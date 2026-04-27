@@ -7,7 +7,18 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, 'database.sqlite');
+// Vercel-де файлдық жүйе оқуға ғана арналғандықтан, SQLite базасын /tmp папкасына көшіреміз
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL;
+let dbPath = path.join(dataDir, 'database.sqlite');
+
+if (isVercel) {
+  const tmpDbPath = path.join('/tmp', 'database.sqlite');
+  if (!fs.existsSync(tmpDbPath) && fs.existsSync(dbPath)) {
+    fs.copyFileSync(dbPath, tmpDbPath);
+  }
+  dbPath = tmpDbPath;
+}
+
 const db = new DatabaseSync(dbPath);
 
 // Create tables if they don't exist

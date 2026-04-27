@@ -17,7 +17,7 @@
    ```
 
 3. **Браузерден ашу**:
-   Жоба `http://localhost:3000` портында іске қосылады.
+   Жоба `http://localhost:3000` портында іске қосылады.![alt text](image.png)
 
 ## Негізгі технологиялар:
 - Frontend: React.js, React Router, Vite

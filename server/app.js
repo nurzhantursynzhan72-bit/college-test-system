@@ -1,4 +1,4 @@
-const express = require('express');
+п»їconst express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
@@ -265,6 +265,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(CLIENT_DIST_DIR, 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`вњ… РЎРµСЂРІРµСЂ С–СЃРєРµ Т›РѕСЃС‹Р»РґС‹: http://localhost:${PORT}`));
+if (process.env.VERCEL !== '1' && !process.env.VERCEL) {
+  app.listen(PORT, () => console.log(``));
+}
 
-// Жа?а функция ?шін комментарий
+module.exports = app;
+
+// пїЅпїЅ?пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ ?пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
