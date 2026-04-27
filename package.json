@@ -8,8 +8,7 @@
     "dev:server": "node server/app.js",
     "dev:client": "npm --prefix client run dev",
     "dev": "node scripts/dev.js",
-    "build:client": "npm --prefix client run build",
-    "build": "npm --prefix client install && npm run build:client"
+    "build:client": "npm --prefix client run build"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
