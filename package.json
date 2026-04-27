@@ -15,7 +15,6 @@
     "bcryptjs": "^2.4.3",
     "express": "^4.22.1",
     "express-session": "^1.19.0",
-    "puppeteer": "^24.42.0",
     "react-router-dom": "^7.14.1",
     "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
