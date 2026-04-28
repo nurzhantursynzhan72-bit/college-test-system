@@ -1,4 +1,3 @@
-const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
@@ -16,8 +15,40 @@ if (isVercel) {
   }
 }
 
-const db = new Database(dbPath);
-db.pragma('foreign_keys = ON');
+function createDb(filePath) {
+  // Prefer better-sqlite3 (works on Vercel) when available.
+  try {
+    // eslint-disable-next-line global-require
+    const BetterSqlite3 = require('better-sqlite3');
+    const instance = new BetterSqlite3(filePath);
+    instance.pragma('foreign_keys = ON');
+    return instance;
+  } catch {
+    // Fallback for local/offline environments without native deps installed.
+    // eslint-disable-next-line global-require
+    const { DatabaseSync } = require('node:sqlite');
+    const instance = new DatabaseSync(filePath);
+    instance.exec('PRAGMA foreign_keys = ON;');
+
+    // Polyfill subset of better-sqlite3 API used in server/app.js
+    if (typeof instance.transaction !== 'function') {
+      instance.transaction = (fn) => (...args) => {
+        instance.exec('BEGIN');
+        try {
+          const result = fn(...args);
+          instance.exec('COMMIT');
+          return result;
+        } catch (err) {
+          try { instance.exec('ROLLBACK'); } catch {}
+          throw err;
+        }
+      };
+    }
+
+    return instance;
+  }
+}
+
+const db = createDb(dbPath);
 
 module.exports = { db, dbPath };
-

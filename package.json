@@ -10,7 +10,8 @@
     "start": "node server/app.js",
     "dev:server": "node server/app.js",
     "dev:client": "npm --prefix client run dev",
-    "dev": "node scripts/dev.js",
+    "dev": "npm run dev:server",
+    "dev:full": "node scripts/dev.js",
     "build:client": "npm --prefix client run build",
     "build": "npm run build:client && rm -rf dist && mv client/dist dist"
   },

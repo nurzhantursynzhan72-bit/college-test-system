@@ -592,6 +592,54 @@ code {
   .card { padding: 1.25rem; }
 }
 
+/* в”Ђв”Ђ MOBILE NAV & TABLES в”Ђв”Ђ */
+@media (max-width: 640px) {
+  .navbar {
+    height: auto;
+    padding: 0.75rem 1rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .navbar-brand {
+    font-size: 1rem;
+  }
+
+  .navbar-nav {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-start;
+  }
+
+  .nav-badge {
+    margin-left: 0 !important;
+    order: 99;
+  }
+
+  /* Make tables usable on phones */
+  .table-container {
+    border-radius: var(--radius);
+  }
+  .premium-table th,
+  .premium-table td {
+    padding: 0.75rem 0.875rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .nav-link {
+    padding: 0.32rem 0.55rem;
+    font-size: 0.8rem;
+  }
+  .logo-icon {
+    width: 26px;
+    height: 26px;
+  }
+}
+
 /* ── STATS SECTION ── */
 .stats-section {
   display: grid;

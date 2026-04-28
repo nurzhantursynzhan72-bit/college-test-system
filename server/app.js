@@ -5,7 +5,13 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const XLSX = require('xlsx');
-const { db } = require('./db');
+
+let db;
+function getDb() {
+  if (db) return db;
+  db = require('./db').db;
+  return db;
+}
 
 const app = express();
 const SECRET = process.env.SESSION_SECRET || 'college-secret-2024';
@@ -66,6 +72,7 @@ apiRouter.get('/health', (req, res) => res.json({ ok: true }));
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 apiRouter.post('/register', (req, res) => {
+  const db = getDb();
   const { name, email, phone, password, group } = req.body;
   if (!name || !email || !phone || !password || !group)
     return res.json({ success: false, message: 'Барлық өрістерді толтырыңыз' });
@@ -89,6 +96,7 @@ apiRouter.post('/register', (req, res) => {
 });
 
 apiRouter.post('/login', (req, res) => {
+  const db = getDb();
   const { email, password } = req.body;
   if (!email || !password)
     return res.json({ success: false, message: 'Email және пароль енгізіңіз' });
@@ -115,6 +123,7 @@ apiRouter.get('/me', (req, res) => {
 
 // ── GROUPS ────────────────────────────────────────────────────────────────────
 apiRouter.get('/groups', (req, res) => {
+  const db = getDb();
   const rows = db.prepare('SELECT DISTINCT group_name FROM users WHERE role = "student" AND group_name IS NOT NULL AND group_name != ""').all();
   res.json({ success: true, groups: rows.map(r => r.group_name) });
 });
@@ -123,6 +132,7 @@ apiRouter.get('/groups', (req, res) => {
 apiRouter.get('/tests', (req, res) => {
   if (!req.session.user) return res.json({ success: false, message: 'Кіру қажет' });
   const user = req.session.user;
+  const db = getDb();
 
   let tests = db.prepare('SELECT t.*, (SELECT COUNT(*) FROM questions q WHERE q.test_id = t.id) as questionCount FROM tests t').all();
 
@@ -141,6 +151,7 @@ apiRouter.get('/tests', (req, res) => {
 
 apiRouter.get('/test/:id', (req, res) => {
   if (!req.session.user) return res.json({ success: false });
+  const db = getDb();
   const test = db.prepare('SELECT * FROM tests WHERE id = ?').get(req.params.id);
   if (!test) return res.json({ success: false, message: 'Тест табылмады' });
 
@@ -160,6 +171,7 @@ apiRouter.post('/submit', (req, res) => {
     return res.json({ success: false });
 
   const { testId, answers } = req.body;
+  const db = getDb();
   const test = db.prepare('SELECT * FROM tests WHERE id = ?').get(testId);
   if (!test) return res.json({ success: false });
 
@@ -181,6 +193,7 @@ apiRouter.post('/submit', (req, res) => {
 
 apiRouter.get('/my-results', (req, res) => {
   if (!req.session.user) return res.json({ success: false });
+  const db = getDb();
   const results = db.prepare(`
     SELECT r.*, t.title as testTitle 
     FROM results r JOIN tests t ON r.test_id = t.id
@@ -194,6 +207,7 @@ apiRouter.get('/teacher/tests', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false, message: 'Рұқсат жоқ' });
 
+  const db = getDb();
   const tests = db.prepare(`
     SELECT t.*, (SELECT COUNT(*) FROM questions q WHERE q.test_id = t.id) as questionCount 
     FROM tests t WHERE created_by = ?
@@ -217,6 +231,7 @@ apiRouter.post('/teacher/test', (req, res) => {
     return res.json({ success: false, message: 'Деректер жетіспейді' });
 
   const testId = uuidv4();
+  const db = getDb();
   const insertAll = db.transaction(() => {
     db.prepare('INSERT INTO tests (id, title, subject, group_name, duration, created_by, active) VALUES (?, ?, ?, ?, ?, ?, 1)')
       .run(testId, title, subject || '', group, parseInt(duration) || 20, req.session.user.email);
@@ -253,6 +268,7 @@ apiRouter.get('/teacher/results', (req, res) => {
 apiRouter.delete('/teacher/test/:id', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false });
+  const db = getDb();
   db.prepare('DELETE FROM tests WHERE id = ? AND created_by = ?').run(req.params.id, req.session.user.email);
   res.json({ success: true });
 });
@@ -265,16 +281,19 @@ function requireAdmin(req, res, next) {
 }
 
 apiRouter.get('/admin/users', requireAdmin, (req, res) => {
+  const db = getDb();
   const users = db.prepare('SELECT id, name, email, phone, role, group_name, created_at as createdAt FROM users').all();
   res.json({ success: true, users: users.map(u => ({ ...u, group: u.group_name })) });
 });
 
 apiRouter.delete('/admin/user/:id', requireAdmin, (req, res) => {
+  const db = getDb();
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
 
 apiRouter.get('/admin/results', requireAdmin, (req, res) => {
+  const db = getDb();
   const results = db.prepare(`
     SELECT r.*, u.name as userName, u.email as userEmail, u.group_name as userGroup, t.title as testTitle
     FROM results r
@@ -285,6 +304,7 @@ apiRouter.get('/admin/results', requireAdmin, (req, res) => {
 });
 
 apiRouter.get('/admin/export', requireAdmin, (req, res) => {
+  const db = getDb();
   const users = db.prepare('SELECT * FROM users WHERE role = "student"').all();
   const results = db.prepare(`
     SELECT r.*, u.name as userName, u.email as userEmail, u.group_name as userGroup, t.title as testTitle

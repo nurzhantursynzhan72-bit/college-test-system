@@ -19,6 +19,8 @@
 3. **Браузерден ашу**:
    Жоба `http://localhost:3000` портында іске қосылады.![alt text](image.png)
 
+> Ескерту: егер `npm run dev:client` (Vite) `spawn EPERM` қатесін берсе, бұл Windows-тағы рұқсат/антивирус шектеуінен болуы мүмкін. Мұндай жағдайда тек backend арқылы дайын жинақты (`client/dist`) `http://localhost:3000` арқылы ашыңыз (яғни `npm run dev` жеткілікті).
+
 ## Негізгі технологиялар:
 - Frontend: React.js, React Router, Vite
 - Backend: Node.js, Express.js
