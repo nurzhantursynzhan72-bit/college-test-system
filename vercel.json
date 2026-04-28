@@ -5,8 +5,8 @@
       "destination": "api/index.js"
     },
     {
-      "source": "/(.*)",
-      "destination": "/dist/$1"
+      "source": "/assets/(.*)",
+      "destination": "/dist/assets/$1"
     },
     {
       "source": "/(.*)",

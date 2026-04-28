@@ -1,3 +1,3 @@
-const app = require('../server/app.js');
-
-module.exports = app;
+module.exports = (req, res) => {
+  res.send('Vercel API Function is working!');
+};

@@ -35,9 +35,9 @@ app.use(session({
   cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
-app.use('/api', apiRouter);
+apiRouter.get('/health', (req, res) => res.send('API OK'));
 
-app.get('/health', (req, res) => res.send('Backend OK'));
+app.use('/api', apiRouter);
 
 // React build статикалық файлдары
 app.use(express.static(CLIENT_DIST_DIR));
