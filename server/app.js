@@ -223,13 +223,13 @@ apiRouter.get('/test/:id', (req, res) => {
   if (test.start_at) {
     const s = Date.parse(test.start_at);
     if (!Number.isNaN(s) && nowMs < s) {
-      return res.json({ success: false, message: 'РўРµСЃС‚ СЏТ›С‹С‚С‹ РєРµР»РјРµРґС–' });
+      return res.json({ success: false, message: 'Тест уақыты келмеді' });
     }
   }
   if (test.end_at) {
     const e = Date.parse(test.end_at);
     if (!Number.isNaN(e) && nowMs > e) {
-      return res.json({ success: false, message: 'РўРµСЃС‚ РјРµСЂР·С–РјС– Р°СЏТ›С‚Р°Р»РґС‹' });
+      return res.json({ success: false, message: 'Тест мерзімі аяқталды' });
     }
   }
 
@@ -237,7 +237,7 @@ apiRouter.get('/test/:id', (req, res) => {
   if (req.session.user.role === 'student' && test.password_hash) {
     const allowed = Array.isArray(req.session.user.allowedTests) ? req.session.user.allowedTests : [];
     if (!allowed.includes(test.id)) {
-      return res.json({ success: false, requiresPassword: true, message: 'РўРµСЃС‚РєРµ РїР°СЂРѕР»СЊ Т›Р°Р¶РµС‚' });
+      return res.json({ success: false, requiresPassword: true, message: 'Тестке пароль қажет' });
     }
   }
 
@@ -246,10 +246,10 @@ apiRouter.get('/test/:id', (req, res) => {
       .get(req.session.user.id, test.id)?.c || 0;
 
     if (!test.allow_retake && attemptCount > 0) {
-      return res.json({ success: false, message: 'Р‘С–Р» С‚РµСЃС‚С‚С– Т›Р°Р№С‚Р° С‚Р°РїСЃС‹СЂСѓТ“Р° Р±РѕР»РјР°Р№РґС‹' });
+      return res.json({ success: false, message: 'Бұл тестті қайта тапсыруға болмайды' });
     }
     if (test.max_attempts && attemptCount >= test.max_attempts) {
-      return res.json({ success: false, message: 'Р›РёРјРёС‚ Р°СЏТ›С‚Р°Р»РґС‹ (max attempts)' });
+      return res.json({ success: false, message: 'Лимит аяқталды (max attempts)' });
     }
 
     // Start/reuse active attempt
