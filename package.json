@@ -12,7 +12,7 @@
     "dev:client": "npm --prefix client run dev",
     "dev": "node scripts/dev.js",
     "build:client": "npm --prefix client run build",
-    "build": "echo 'Using prebuilt dist'"
+    "build": "npm run build:client"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -37,6 +37,8 @@ app.use(session({
 
 app.use('/api', apiRouter);
 
+app.get('/health', (req, res) => res.send('Backend OK'));
+
 // React build статикалық файлдары
 app.use(express.static(CLIENT_DIST_DIR));
 
