@@ -15,7 +15,10 @@ function run(command, args, name) {
 }
 
 const server = run('npm', ['run', 'dev:server'], 'server');
+console.log('>>> Бэкэнд сервер іске қосылуда (3000 порты)...');
+
 const client = run('npm', ['run', 'dev:client'], 'client');
+console.log('>>> Фронтенд (Vite) іске қосылуда (5173 порты)...');
 
 function shutdown() {
   server.kill();

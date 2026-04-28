@@ -1,0 +1,87 @@
+[
+  {
+    "id": "151825e7-ad7f-45ba-9992-feac84510c76",
+    "name": "Admin",
+    "email": "admin@college.kz",
+    "phone": "+77001112233",
+    "password": "$2a$10$jhDIQNP3bRPSc0brSq7gF.ELymnc46D9XoDypactHYfxWOxbvJsW6",
+    "role": "admin",
+    "group": ""
+  },
+  {
+    "id": "8cc9f67f-4de9-416b-8e9a-8888110a17a1",
+    "name": "Алмас Бекжанов",
+    "email": "teacher@college.kz",
+    "phone": "+77002223344",
+    "password": "$2a$10$88Nl9KgCDcrHvLJjlXqODOaDaHhK9iXFHKl7FsP./nGDhA5UqXD4G",
+    "role": "teacher",
+    "group": ""
+  },
+  {
+    "id": "16c342c1-6096-4fa3-a045-0a4de0f4f215",
+    "name": "Айгерім Сейткали",
+    "email": "student1@college.kz",
+    "phone": "+77003334455",
+    "password": "$2a$10$eLEJ5RLL5y/75CRXpnCf6eCxrzdgwlFju6XKmZHMgJiT1P4m8jNRa",
+    "role": "student",
+    "group": "БҚ-2405"
+  },
+  {
+    "id": "7d73c613-dca1-4ebd-b3a6-450173cd573d",
+    "name": "Данияр Ахметов",
+    "email": "student2@college.kz",
+    "phone": "+77004445566",
+    "password": "$2a$10$qUkVCtysCpZ8sUoLBfrTaeqntKFX/AX0dWg9J6pvQYDj1DPMJbr1m",
+    "role": "student",
+    "group": "БҚ-2405"
+  },
+  {
+    "id": "47c7fa9d-136e-4ab9-8a6e-5ac0a803f871",
+    "name": "Мадина Есова",
+    "email": "student3@college.kz",
+    "phone": "+77005556677",
+    "password": "$2a$10$Izqa4xO0HeVOJNFVAe/Z3.VH5IQx0lNjfqBxNuMD6Vnof8zoqKhkK",
+    "role": "student",
+    "group": "БҚ-2406"
+  },
+  {
+    "id": "a3489c03-a0d9-41ec-9932-95c60564b50a",
+    "name": "admin",
+    "email": "tursynzhan08@bk.ru",
+    "phone": "+77782617362",
+    "password": "$2a$10$KbfweOO5riV0nZtkUsH71.gOvhP650BcsTljCHGNn4rVRtmknVm0a",
+    "role": "student",
+    "group": "БҚ-2405",
+    "createdAt": "2026-04-13T16:32:58.531Z"
+  },
+  {
+    "id": "64cc052d-7656-4486-9c03-37cf23993d82",
+    "name": "Tolegen Nurlybek",
+    "email": "n59975758@gmail.com",
+    "phone": "+77084814053",
+    "password": "$2a$10$zEco0sN4NYsIeKQ/WIXOBOOYMdImoIaDFx6iq2eUx8p4JYsejskfC",
+    "role": "student",
+    "group": "БҚ-2405",
+    "createdAt": "2026-04-16T03:26:47.475Z"
+  },
+  {
+    "id": "d835ad15-2335-4fb3-bea3-c7c03cc008c7",
+    "name": "Tolegen Naks",
+    "email": "tursynzhan089@bk.ru",
+    "phone": "+77782617362",
+    "password": "$2a$10$cwZb8ADpZgnfGwVaFcX71e18NRYhGlRIXchFWWP4uOUETRWGBr8lm",
+    "role": "student",
+    "group": "ЭК-2401",
+    "createdAt": "2026-04-16T03:27:20.561Z"
+  },
+  {
+    "id": "48ae000f-42c8-41a4-9dd8-8b5651ba6804",
+    "name": "Тұрсынжан Нұржан",
+    "email": "nurzhan@college.kz",
+    "phone": "+77084814053",
+    "password": "$2a$10$ydLLkQicWMReoJLRqDvWmOa/YbCr5wayAaYrC46Um1ycg9ii2LUvi",
+    "role": "student",
+    "group": "БҚ-2405",
+    "createdAt": "2026-04-22T03:25:41.170Z"
+  }
+]

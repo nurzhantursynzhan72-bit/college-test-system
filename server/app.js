@@ -9,11 +9,25 @@ const { db } = require('./db');
 
 const app = express();
 const PORT = 3000;
-const CLIENT_DIST_DIR = path.join(__dirname, '../client/dist');
+
+// Тексеру: Root dist немесе client/dist
+const rootDist = path.join(__dirname, '../dist');
+const clientDist = path.join(__dirname, '../client/dist');
+const CLIENT_DIST_DIR = fs.existsSync(rootDist) ? rootDist : clientDist;
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Request Logger
+app.use((req, res, next) => {
+  console.log(`${new Date().toLocaleTimeString()} | ${req.method} ${req.url}`);
+  next();
+});
+
+// API Router
+const apiRouter = express.Router();
+
 app.use(session({
   secret: 'college-test-secret-2024',
   resave: false,
@@ -21,11 +35,13 @@ app.use(session({
   cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 
+app.use('/api', apiRouter);
+
 // React build статикалық файлдары
 app.use(express.static(CLIENT_DIST_DIR));
 
 // ============ AUTH ROUTES ============
-app.post('/api/register', (req, res) => {
+apiRouter.post('/register', (req, res) => {
   const { name, email, phone, password, group } = req.body;
   if (!name || !email || !phone || !password || !group)
     return res.json({ success: false, message: 'Барлық өрістерді толтырыңыз' });
@@ -45,7 +61,7 @@ app.post('/api/register', (req, res) => {
   }
 });
 
-app.post('/api/login', (req, res) => {
+apiRouter.post('/login', (req, res) => {
   const { email, password } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   
@@ -56,24 +72,24 @@ app.post('/api/login', (req, res) => {
   res.json({ success: true, role: user.role });
 });
 
-app.post('/api/logout', (req, res) => {
+apiRouter.post('/logout', (req, res) => {
   req.session.destroy();
   res.json({ success: true });
 });
 
-app.get('/api/me', (req, res) => {
+apiRouter.get('/me', (req, res) => {
   if (!req.session.user) return res.json({ loggedIn: false });
   res.json({ loggedIn: true, user: req.session.user });
 });
 
 // ============ PUBLIC / COMMON ROUTES ============
-app.get('/api/groups', (req, res) => {
+apiRouter.get('/groups', (req, res) => {
   const rows = db.prepare('SELECT DISTINCT group_name FROM users WHERE role = "student" AND group_name IS NOT NULL AND group_name != ""').all();
   res.json({ success: true, groups: rows.map(r => r.group_name) });
 });
 
 // ============ STUDENT ROUTES ============
-app.get('/api/tests', (req, res) => {
+apiRouter.get('/tests', (req, res) => {
   if (!req.session.user) return res.json({ success: false });
   const user = req.session.user;
 
@@ -92,7 +108,7 @@ app.get('/api/tests', (req, res) => {
   res.json({ success: true, tests });
 });
 
-app.get('/api/test/:id', (req, res) => {
+apiRouter.get('/test/:id', (req, res) => {
   if (!req.session.user) return res.json({ success: false });
   const test = db.prepare('SELECT * FROM tests WHERE id = ?').get(req.params.id);
   if (!test) return res.json({ success: false, message: 'Тест табылмады' });
@@ -106,7 +122,7 @@ app.get('/api/test/:id', (req, res) => {
   res.json({ success: true, test: safe });
 });
 
-app.post('/api/submit', (req, res) => {
+apiRouter.post('/submit', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'student')
     return res.json({ success: false });
 
@@ -132,7 +148,7 @@ app.post('/api/submit', (req, res) => {
   res.json({ success: true, correct, total, score });
 });
 
-app.get('/api/my-results', (req, res) => {
+apiRouter.get('/my-results', (req, res) => {
   if (!req.session.user) return res.json({ success: false });
   const results = db.prepare(`
     SELECT r.*, t.title as testTitle 
@@ -144,7 +160,7 @@ app.get('/api/my-results', (req, res) => {
 });
 
 // ============ TEACHER ROUTES ============
-app.get('/api/teacher/tests', (req, res) => {
+apiRouter.get('/teacher/tests', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false, message: 'Рұқсат жоқ' });
 
@@ -160,7 +176,7 @@ app.get('/api/teacher/tests', (req, res) => {
   }))});
 });
 
-app.post('/api/teacher/test', (req, res) => {
+apiRouter.post('/teacher/test', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false, message: 'Рұқсат жоқ' });
 
@@ -187,7 +203,7 @@ app.post('/api/teacher/test', (req, res) => {
   }
 });
 
-app.get('/api/teacher/results', (req, res) => {
+apiRouter.get('/teacher/results', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false });
     
@@ -202,7 +218,7 @@ app.get('/api/teacher/results', (req, res) => {
   res.json({ success: true, results });
 });
 
-app.delete('/api/teacher/test/:id', (req, res) => {
+apiRouter.delete('/teacher/test/:id', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false });
     
@@ -213,21 +229,21 @@ app.delete('/api/teacher/test/:id', (req, res) => {
 // ============ ADMIN ROUTES ============
 function requireAdmin(req, res, next) {
   if (!req.session.user || req.session.user.role !== 'admin')
-    return res.json({ success: false, message: 'Рұқсат жоқ' });
+    return res.status(403).json({ success: false, message: 'Рұқсат жоқ' });
   next();
 }
 
-app.get('/api/admin/users', requireAdmin, (req, res) => {
+apiRouter.get('/admin/users', requireAdmin, (req, res) => {
   const users = db.prepare('SELECT id, name, email, phone, role, group_name, created_at as createdAt FROM users').all();
   res.json({ success: true, users: users.map(u => ({ ...u, group: u.group_name })) });
 });
 
-app.delete('/api/admin/user/:id', requireAdmin, (req, res) => {
+apiRouter.delete('/admin/user/:id', requireAdmin, (req, res) => {
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
 
-app.get('/api/admin/results', requireAdmin, (req, res) => {
+apiRouter.get('/admin/results', requireAdmin, (req, res) => {
   const results = db.prepare(`
     SELECT r.*, u.name as userName, u.email as userEmail, u.group_name as userGroup, t.title as testTitle
     FROM results r
@@ -237,7 +253,7 @@ app.get('/api/admin/results', requireAdmin, (req, res) => {
   res.json({ success: true, results });
 });
 
-app.get('/api/admin/export', requireAdmin, (req, res) => {
+apiRouter.get('/admin/export', requireAdmin, (req, res) => {
   const users = db.prepare('SELECT * FROM users WHERE role = "student"').all();
   const results = db.prepare(`
     SELECT r.*, u.name as userName, u.email as userEmail, u.group_name as userGroup, t.title as testTitle
@@ -260,13 +276,39 @@ app.get('/api/admin/export', requireAdmin, (req, res) => {
   res.send(buf);
 });
 
+// API routes 404 handler (must be after all apiRouter routes)
+apiRouter.all('*', (req, res) => {
+  console.warn(`[404] API route not found: ${req.method} ${req.url}`);
+  res.status(404).json({ success: false, message: `API route not found: ${req.method} ${req.url}` });
+});
+
+// API Error Handler
+apiRouter.use((err, req, res, next) => {
+  console.error('API Error:', err.stack);
+  res.status(500).json({ success: false, message: 'Серверде қате кетті', error: err.message });
+});
+
+// React static files handler
+app.use(express.static(CLIENT_DIST_DIR));
+
 // Барлық басқа сұраныстарды React-қа жіберу (SPA)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(CLIENT_DIST_DIR, 'index.html'));
+  const indexPath = path.join(CLIENT_DIST_DIR, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    console.error(`[ERROR] index.html not found at: ${indexPath}`);
+    res.status(404).send('Frontend build not found. Please run npm run build:client');
+  }
 });
 
 if (process.env.VERCEL !== '1' && !process.env.VERCEL) {
-  app.listen(PORT, () => console.log(``));
+  app.listen(PORT, () => {
+    console.log(`=========================================`);
+    console.log(`  Server: http://localhost:${PORT}`);
+    console.log(`  Static files: ${CLIENT_DIST_DIR}`);
+    console.log(`=========================================`);
+  });
 }
 
 module.exports = app;

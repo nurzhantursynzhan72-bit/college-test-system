@@ -1,6 +1,9 @@
 {
   "name": "college-test-system",
   "version": "1.0.0",
+  "engines": {
+    "node": "22.x"
+  },
   "description": "Колледж онлайн тест жүйесі",
   "main": "server/app.js",
   "scripts": {
