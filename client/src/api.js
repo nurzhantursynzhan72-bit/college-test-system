@@ -1,5 +1,9 @@
+const API_BASE_URL = ''; // Vercel-де бірдей домен қолданылса, бос қалдыруға болады
+
 export async function api(path, options = {}) {
-  const resp = await fetch(path, {
+  const fullPath = path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
+  
+  const resp = await fetch(fullPath, {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options

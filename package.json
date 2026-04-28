@@ -2,7 +2,7 @@
   "name": "college-test-system",
   "version": "1.0.0",
   "engines": {
-    "node": "22.x"
+    "node": "20.x"
   },
   "description": "Колледж онлайн тест жүйесі",
   "main": "server/app.js",
@@ -16,9 +16,8 @@
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "express": "^4.22.1",
-    "express-session": "^1.19.0",
-    "react-router-dom": "^7.14.1",
+    "better-sqlite3": "^9.4.3",
+    "express": "^4.18.2",
     "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
   }

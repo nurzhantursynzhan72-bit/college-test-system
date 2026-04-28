@@ -1,81 +1,110 @@
 const express = require('express');
-const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const XLSX = require('xlsx');
 const { db } = require('./db');
 
 const app = express();
-const PORT = 3000;
+const SECRET = process.env.SESSION_SECRET || 'college-secret-2024';
 
-// Тексеру: Root dist немесе client/dist
-const rootDist = path.join(__dirname, '../dist');
-const clientDist = path.join(__dirname, '../client/dist');
-const CLIENT_DIST_DIR = fs.existsSync(rootDist) ? rootDist : clientDist;
+const rootDist = path.join(__dirname, '../client/dist');
+const CLIENT_DIST_DIR = fs.existsSync(rootDist) ? rootDist : path.join(__dirname, '../dist');
 
-// Middleware
+// ── Cookie session helpers ────────────────────────────────────────────────────
+function signPayload(user) {
+  const data = Buffer.from(JSON.stringify(user)).toString('base64');
+  const sig = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
+function verifyPayload(token) {
+  try {
+    const [data, sig] = token.split('.');
+    const expected = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
+    if (sig !== expected) return null;
+    return JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
+  } catch { return null; }
+}
+
+// ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request Logger
 app.use((req, res, next) => {
-  console.log(`${new Date().toLocaleTimeString()} | ${req.method} ${req.url}`);
+  req.cookies = {};
+  (req.headers.cookie || '').split(';').forEach(part => {
+    const [k, ...v] = part.trim().split('=');
+    if (k) req.cookies[k.trim()] = decodeURIComponent(v.join('='));
+  });
+
+  const token = req.cookies['edu_session'];
+  req.session = { user: token ? verifyPayload(token) : null };
+
+  res.saveSession = (user) => {
+    const t = signPayload(user);
+    res.setHeader('Set-Cookie', `edu_session=${encodeURIComponent(t)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+  };
+  res.clearSession = () => {
+    res.setHeader('Set-Cookie', 'edu_session=; Path=/; HttpOnly; Max-Age=0');
+  };
   next();
 });
 
-// API Router
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} | ${req.method} ${req.url}`);
+  next();
+});
+
+// ── API Router ────────────────────────────────────────────────────────────────
 const apiRouter = express.Router();
-
-app.use(session({
-  secret: 'college-test-secret-2024',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }
-}));
-
-apiRouter.get('/health', (req, res) => res.send('API OK'));
-
 app.use('/api', apiRouter);
 
-// React build статикалық файлдары
-app.use(express.static(CLIENT_DIST_DIR));
+apiRouter.get('/health', (req, res) => res.json({ ok: true }));
 
-// ============ AUTH ROUTES ============
+// ── AUTH ──────────────────────────────────────────────────────────────────────
 apiRouter.post('/register', (req, res) => {
   const { name, email, phone, password, group } = req.body;
   if (!name || !email || !phone || !password || !group)
     return res.json({ success: false, message: 'Барлық өрістерді толтырыңыз' });
 
-  const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (existing) return res.json({ success: false, message: 'Бұл email тіркелген' });
 
   const id = uuidv4();
   const hash = bcrypt.hashSync(password, 10);
-  
+
   try {
-    db.prepare('INSERT INTO users (id, name, email, phone, password, role, group_name) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, name, email, phone, hash, 'student', group);
-    req.session.user = { id, name, email, role: 'student', group };
+    db.prepare('INSERT INTO users (id, name, email, phone, password, role, group_name) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, name, email, phone, hash, 'student', group);
+    const user = { id, name, email, role: 'student', group };
+    res.saveSession(user);
     res.json({ success: true, role: 'student' });
   } catch (err) {
+    console.error('Register error:', err);
     res.json({ success: false, message: 'Тіркелу кезінде қате кетті' });
   }
 });
 
 apiRouter.post('/login', (req, res) => {
   const { email, password } = req.body;
+  if (!email || !password)
+    return res.json({ success: false, message: 'Email және пароль енгізіңіз' });
+
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  
+
   if (!user || !bcrypt.compareSync(password, user.password))
     return res.json({ success: false, message: 'Email немесе пароль қате' });
 
-  req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role, group: user.group_name };
+  const sessionUser = { id: user.id, name: user.name, email: user.email, role: user.role, group: user.group_name };
+  res.saveSession(sessionUser);
   res.json({ success: true, role: user.role });
 });
 
 apiRouter.post('/logout', (req, res) => {
-  req.session.destroy();
+  res.clearSession();
   res.json({ success: true });
 });
 
@@ -84,19 +113,19 @@ apiRouter.get('/me', (req, res) => {
   res.json({ loggedIn: true, user: req.session.user });
 });
 
-// ============ PUBLIC / COMMON ROUTES ============
+// ── GROUPS ────────────────────────────────────────────────────────────────────
 apiRouter.get('/groups', (req, res) => {
   const rows = db.prepare('SELECT DISTINCT group_name FROM users WHERE role = "student" AND group_name IS NOT NULL AND group_name != ""').all();
   res.json({ success: true, groups: rows.map(r => r.group_name) });
 });
 
-// ============ STUDENT ROUTES ============
+// ── STUDENT ROUTES ────────────────────────────────────────────────────────────
 apiRouter.get('/tests', (req, res) => {
-  if (!req.session.user) return res.json({ success: false });
+  if (!req.session.user) return res.json({ success: false, message: 'Кіру қажет' });
   const user = req.session.user;
 
   let tests = db.prepare('SELECT t.*, (SELECT COUNT(*) FROM questions q WHERE q.test_id = t.id) as questionCount FROM tests t').all();
-  
+
   if (user.role === 'student') {
     tests = tests.filter(t => {
       if (!t.active) return false;
@@ -116,12 +145,14 @@ apiRouter.get('/test/:id', (req, res) => {
   if (!test) return res.json({ success: false, message: 'Тест табылмады' });
 
   const questions = db.prepare('SELECT id, text, options FROM questions WHERE test_id = ?').all(test.id);
-  
-  const safe = {
-    id: test.id, title: test.title, subject: test.subject, duration: test.duration, group: test.group_name,
-    questions: questions.map(q => ({ id: q.id, text: q.text, options: JSON.parse(q.options) }))
-  };
-  res.json({ success: true, test: safe });
+  res.json({
+    success: true,
+    test: {
+      id: test.id, title: test.title, subject: test.subject,
+      duration: test.duration, group: test.group_name,
+      questions: questions.map(q => ({ id: q.id, text: q.text, options: JSON.parse(q.options) }))
+    }
+  });
 });
 
 apiRouter.post('/submit', (req, res) => {
@@ -133,7 +164,6 @@ apiRouter.post('/submit', (req, res) => {
   if (!test) return res.json({ success: false });
 
   const questions = db.prepare('SELECT * FROM questions WHERE test_id = ?').all(testId);
-  
   let correct = 0;
   questions.forEach(q => {
     if (answers[q.id] !== undefined && parseInt(answers[q.id]) === q.correct) correct++;
@@ -142,10 +172,9 @@ apiRouter.post('/submit', (req, res) => {
   const total = questions.length;
   const score = Math.round((correct / total) * 100);
   const resultId = uuidv4();
-  
-  db.prepare('INSERT INTO results (id, user_id, test_id, correct, total, score) VALUES (?, ?, ?, ?, ?, ?)').run(
-    resultId, req.session.user.id, testId, correct, total, score
-  );
+
+  db.prepare('INSERT INTO results (id, user_id, test_id, correct, total, score) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(resultId, req.session.user.id, testId, correct, total, score);
 
   res.json({ success: true, correct, total, score });
 });
@@ -154,14 +183,13 @@ apiRouter.get('/my-results', (req, res) => {
   if (!req.session.user) return res.json({ success: false });
   const results = db.prepare(`
     SELECT r.*, t.title as testTitle 
-    FROM results r
-    JOIN tests t ON r.test_id = t.id
+    FROM results r JOIN tests t ON r.test_id = t.id
     WHERE r.user_id = ?
   `).all(req.session.user.id);
   res.json({ success: true, results });
 });
 
-// ============ TEACHER ROUTES ============
+// ── TEACHER ROUTES ────────────────────────────────────────────────────────────
 apiRouter.get('/teacher/tests', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false, message: 'Рұқсат жоқ' });
@@ -171,11 +199,13 @@ apiRouter.get('/teacher/tests', (req, res) => {
     FROM tests t WHERE created_by = ?
   `).all(req.session.user.email);
 
-  res.json({ success: true, tests: tests.map(t => ({
-    id: t.id, title: t.title, subject: t.subject, group: t.group_name,
-    duration: t.duration, questionCount: t.questionCount,
-    active: t.active, createdAt: t.created_at
-  }))});
+  res.json({
+    success: true, tests: tests.map(t => ({
+      id: t.id, title: t.title, subject: t.subject, group: t.group_name,
+      duration: t.duration, questionCount: t.questionCount,
+      active: t.active, createdAt: t.created_at
+    }))
+  });
 });
 
 apiRouter.post('/teacher/test', (req, res) => {
@@ -187,20 +217,20 @@ apiRouter.post('/teacher/test', (req, res) => {
     return res.json({ success: false, message: 'Деректер жетіспейді' });
 
   const testId = uuidv4();
-  
-  db.exec('BEGIN TRANSACTION');
-  try {
+  const insertAll = db.transaction(() => {
     db.prepare('INSERT INTO tests (id, title, subject, group_name, duration, created_by, active) VALUES (?, ?, ?, ?, ?, ?, 1)')
       .run(testId, title, subject || '', group, parseInt(duration) || 20, req.session.user.email);
-    
     const qStmt = db.prepare('INSERT INTO questions (id, test_id, text, options, correct) VALUES (?, ?, ?, ?, ?)');
     for (const q of questions) {
       qStmt.run(uuidv4(), testId, q.text, JSON.stringify(q.options), q.correct);
     }
-    db.exec('COMMIT');
+  });
+
+  try {
+    insertAll();
     res.json({ success: true });
   } catch (err) {
-    db.exec('ROLLBACK');
+    console.error('Create test error:', err);
     res.json({ success: false, message: 'Серверде қате кетті' });
   }
 });
@@ -208,7 +238,7 @@ apiRouter.post('/teacher/test', (req, res) => {
 apiRouter.get('/teacher/results', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false });
-    
+
   const results = db.prepare(`
     SELECT r.*, u.name as userName, u.email as userEmail, u.group_name as userGroup, t.title as testTitle
     FROM results r
@@ -216,19 +246,18 @@ apiRouter.get('/teacher/results', (req, res) => {
     JOIN tests t ON r.test_id = t.id
     WHERE t.created_by = ?
   `).all(req.session.user.email);
-  
+
   res.json({ success: true, results });
 });
 
 apiRouter.delete('/teacher/test/:id', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false });
-    
   db.prepare('DELETE FROM tests WHERE id = ? AND created_by = ?').run(req.params.id, req.session.user.email);
   res.json({ success: true });
 });
 
-// ============ ADMIN ROUTES ============
+// ── ADMIN ROUTES ──────────────────────────────────────────────────────────────
 function requireAdmin(req, res, next) {
   if (!req.session.user || req.session.user.role !== 'admin')
     return res.status(403).json({ success: false, message: 'Рұқсат жоқ' });
@@ -265,12 +294,12 @@ apiRouter.get('/admin/export', requireAdmin, (req, res) => {
   `).all();
 
   const wb = XLSX.utils.book_new();
-
-  const usersData = users.map(u => ({ 'Аты-жөні': u.name, 'Email': u.email, 'Телефон': u.phone, 'Тобы': u.group_name, 'Тіркелген күні': u.created_at ? new Date(u.created_at).toLocaleDateString('kk-KZ') : '' }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(usersData), 'Студенттер');
-
-  const resultsData = results.map(r => ({ 'Аты-жөні': r.userName, 'Email': r.userEmail, 'Тобы': r.userGroup, 'Тест': r.testTitle, 'Дұрыс жауап': r.correct, 'Барлығы': r.total, 'Балл (%)': r.score, 'Тапсырған уақыт': new Date(r.submitted_at).toLocaleString('kk-KZ') }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resultsData), 'Нәтижелер');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    users.map(u => ({ 'Аты-жөні': u.name, 'Email': u.email, 'Телефон': u.phone, 'Тобы': u.group_name }))
+  ), 'Студенттер');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    results.map(r => ({ 'Аты-жөні': r.userName, 'Email': r.userEmail, 'Тобы': r.userGroup, 'Тест': r.testTitle, 'Балл (%)': r.score }))
+  ), 'Нәтижелер');
 
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.setHeader('Content-Disposition', 'attachment; filename="college-results.xlsx"');
@@ -278,41 +307,28 @@ apiRouter.get('/admin/export', requireAdmin, (req, res) => {
   res.send(buf);
 });
 
-// API routes 404 handler (must be after all apiRouter routes)
 apiRouter.all('*', (req, res) => {
-  console.warn(`[404] API route not found: ${req.method} ${req.url}`);
   res.status(404).json({ success: false, message: `API route not found: ${req.method} ${req.url}` });
 });
 
-// API Error Handler
-apiRouter.use((err, req, res, next) => {
-  console.error('API Error:', err.stack);
-  res.status(500).json({ success: false, message: 'Серверде қате кетті', error: err.message });
-});
-
-// React static files handler
+// ── Static & SPA ──────────────────────────────────────────────────────────────
 app.use(express.static(CLIENT_DIST_DIR));
 
-// Барлық басқа сұраныстарды React-қа жіберу (SPA)
 app.get('*', (req, res) => {
   const indexPath = path.join(CLIENT_DIST_DIR, 'index.html');
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
-    console.error(`[ERROR] index.html not found at: ${indexPath}`);
-    res.status(404).send('Frontend build not found. Please run npm run build:client');
+    res.status(404).send('Frontend build not found. Run: npm run build:client');
   }
 });
 
-if (process.env.VERCEL !== '1' && !process.env.VERCEL) {
+// ── Local dev ─────────────────────────────────────────────────────────────────
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
-    console.log(`=========================================`);
-    console.log(`  Server: http://localhost:${PORT}`);
-    console.log(`  Static files: ${CLIENT_DIST_DIR}`);
-    console.log(`=========================================`);
+    console.log(`Server: http://localhost:${PORT}`);
   });
 }
 
 module.exports = app;
-
-// ��?� ������� ?��� �����������
