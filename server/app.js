@@ -13,6 +13,14 @@ function getDb() {
   return db;
 }
 
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 const app = express();
 const SECRET = process.env.SESSION_SECRET || 'college-secret-2024';
 
@@ -134,7 +142,11 @@ apiRouter.get('/tests', (req, res) => {
   const user = req.session.user;
   const db = getDb();
 
-  let tests = db.prepare('SELECT t.*, (SELECT COUNT(*) FROM questions q WHERE q.test_id = t.id) as questionCount FROM tests t').all();
+  let tests = db.prepare(`
+    SELECT t.*,
+      (SELECT COUNT(*) FROM questions q WHERE q.test_id = t.id) as questionCount
+    FROM tests t
+  `).all();
 
   if (user.role === 'student') {
     tests = tests.filter(t => {
@@ -142,11 +154,62 @@ apiRouter.get('/tests', (req, res) => {
       if (!t.group_name) return false;
       const targetGroups = t.group_name.split(',').map(g => g.trim());
       return targetGroups.includes(user.group);
-    }).map(t => ({ id: t.id, title: t.title, subject: t.subject, duration: t.duration, group: t.group_name, questionCount: t.questionCount }));
+    }).map(t => ({
+      id: t.id,
+      title: t.title,
+      subject: t.subject,
+      duration: t.duration,
+      group: t.group_name,
+      category: t.category || '',
+      questionCount: t.questionCount,
+      requiresPassword: !!t.password_hash,
+      randomizeQuestions: !!t.randomize_questions,
+      allowRetake: !!t.allow_retake,
+      maxAttempts: t.max_attempts ?? null,
+      startAt: t.start_at ?? null,
+      endAt: t.end_at ?? null
+    }));
   } else {
-    tests = tests.map(t => ({ id: t.id, title: t.title, subject: t.subject, duration: t.duration, group: t.group_name, questionCount: t.questionCount, active: t.active }));
+    tests = tests.map(t => ({
+      id: t.id,
+      title: t.title,
+      subject: t.subject,
+      duration: t.duration,
+      group: t.group_name,
+      category: t.category || '',
+      questionCount: t.questionCount,
+      active: t.active,
+      requiresPassword: !!t.password_hash,
+      randomizeQuestions: !!t.randomize_questions,
+      allowRetake: !!t.allow_retake,
+      maxAttempts: t.max_attempts ?? null,
+      startAt: t.start_at ?? null,
+      endAt: t.end_at ?? null
+    }));
   }
   res.json({ success: true, tests });
+});
+
+apiRouter.post('/test/access', (req, res) => {
+  if (!req.session.user) return res.status(401).json({ success: false });
+  const { testId, password } = req.body || {};
+  if (!testId) return res.json({ success: false, message: 'testId required' });
+
+  const db = getDb();
+  const test = db.prepare('SELECT id, password_hash FROM tests WHERE id = ?').get(testId);
+  if (!test) return res.json({ success: false, message: 'Test not found' });
+  if (!test.password_hash) return res.json({ success: true }); // no password
+
+  if (!password || !bcrypt.compareSync(String(password), test.password_hash)) {
+    return res.json({ success: false, message: 'Password incorrect' });
+  }
+
+  const current = req.session.user;
+  const allowed = Array.isArray(current.allowedTests) ? current.allowedTests : [];
+  if (!allowed.includes(testId)) allowed.push(testId);
+  const updatedUser = { ...current, allowedTests: allowed };
+  res.saveSession(updatedUser);
+  res.json({ success: true });
 });
 
 apiRouter.get('/test/:id', (req, res) => {
@@ -155,40 +218,191 @@ apiRouter.get('/test/:id', (req, res) => {
   const test = db.prepare('SELECT * FROM tests WHERE id = ?').get(req.params.id);
   if (!test) return res.json({ success: false, message: 'Тест табылмады' });
 
-  const questions = db.prepare('SELECT id, text, options FROM questions WHERE test_id = ?').all(test.id);
+  // Time window
+  const nowMs = Date.now();
+  if (test.start_at) {
+    const s = Date.parse(test.start_at);
+    if (!Number.isNaN(s) && nowMs < s) {
+      return res.json({ success: false, message: 'РўРµСЃС‚ СЏТ›С‹С‚С‹ РєРµР»РјРµРґС–' });
+    }
+  }
+  if (test.end_at) {
+    const e = Date.parse(test.end_at);
+    if (!Number.isNaN(e) && nowMs > e) {
+      return res.json({ success: false, message: 'РўРµСЃС‚ РјРµСЂР·С–РјС– Р°СЏТ›С‚Р°Р»РґС‹' });
+    }
+  }
+
+  // Password protection for students
+  if (req.session.user.role === 'student' && test.password_hash) {
+    const allowed = Array.isArray(req.session.user.allowedTests) ? req.session.user.allowedTests : [];
+    if (!allowed.includes(test.id)) {
+      return res.json({ success: false, requiresPassword: true, message: 'РўРµСЃС‚РєРµ РїР°СЂРѕР»СЊ Т›Р°Р¶РµС‚' });
+    }
+  }
+
+  if (req.session.user.role === 'student') {
+    const attemptCount = db.prepare('SELECT COUNT(*) as c FROM results WHERE user_id = ? AND test_id = ?')
+      .get(req.session.user.id, test.id)?.c || 0;
+
+    if (!test.allow_retake && attemptCount > 0) {
+      return res.json({ success: false, message: 'Р‘С–Р» С‚РµСЃС‚С‚С– Т›Р°Р№С‚Р° С‚Р°РїСЃС‹СЂСѓТ“Р° Р±РѕР»РјР°Р№РґС‹' });
+    }
+    if (test.max_attempts && attemptCount >= test.max_attempts) {
+      return res.json({ success: false, message: 'Р›РёРјРёС‚ Р°СЏТ›С‚Р°Р»РґС‹ (max attempts)' });
+    }
+
+    // Start/reuse active attempt
+    let attempt = db.prepare(`
+      SELECT * FROM attempts
+      WHERE user_id = ? AND test_id = ? AND submitted_at IS NULL
+      ORDER BY attempt_no DESC
+      LIMIT 1
+    `).get(req.session.user.id, test.id);
+
+    if (!attempt) {
+      const attemptNo = attemptCount + 1;
+      const attemptId = uuidv4();
+      db.prepare('INSERT INTO attempts (id, user_id, test_id, attempt_no) VALUES (?, ?, ?, ?)')
+        .run(attemptId, req.session.user.id, test.id, attemptNo);
+      attempt = db.prepare('SELECT * FROM attempts WHERE id = ?').get(attemptId);
+    }
+
+    const startedMs = attempt?.started_at ? Date.parse(attempt.started_at) : nowMs;
+    const durationSec = (parseInt(test.duration, 10) || 0) * 60;
+    const timeLeftSec = durationSec > 0 ? Math.max(0, Math.floor((startedMs + durationSec - nowMs) / 1000)) : null;
+
+    const questionsRaw = db.prepare('SELECT id, text, options, media_url FROM questions WHERE test_id = ?').all(test.id);
+    const questionsShuffled = test.randomize_questions ? shuffleInPlace([...questionsRaw]) : questionsRaw;
+
+    return res.json({
+      success: true,
+      test: {
+        id: test.id,
+        title: test.title,
+        subject: test.subject,
+        duration: test.duration,
+        group: test.group_name,
+        category: test.category || '',
+        randomizeQuestions: !!test.randomize_questions,
+        allowRetake: !!test.allow_retake,
+        maxAttempts: test.max_attempts ?? null,
+        startAt: test.start_at ?? null,
+        endAt: test.end_at ?? null,
+        questions: questionsShuffled.map(q => ({
+          id: q.id,
+          text: q.text,
+          options: JSON.parse(q.options),
+          mediaUrl: q.media_url || null
+        }))
+      },
+      attempt: { id: attempt.id, attemptNo: attempt.attempt_no, startedAt: attempt.started_at, timeLeftSec }
+    });
+  }
+
+  const questions = db.prepare('SELECT id, text, options, media_url, explanation FROM questions WHERE test_id = ?').all(test.id);
+  const list = test.randomize_questions ? shuffleInPlace([...questions]) : questions;
   res.json({
     success: true,
     test: {
-      id: test.id, title: test.title, subject: test.subject,
-      duration: test.duration, group: test.group_name,
-      questions: questions.map(q => ({ id: q.id, text: q.text, options: JSON.parse(q.options) }))
+      id: test.id,
+      title: test.title,
+      subject: test.subject,
+      duration: test.duration,
+      group: test.group_name,
+      category: test.category || '',
+      randomizeQuestions: !!test.randomize_questions,
+      allowRetake: !!test.allow_retake,
+      maxAttempts: test.max_attempts ?? null,
+      startAt: test.start_at ?? null,
+      endAt: test.end_at ?? null,
+      questions: list.map(q => ({
+        id: q.id,
+        text: q.text,
+        options: JSON.parse(q.options),
+        mediaUrl: q.media_url || null,
+        explanation: q.explanation || null
+      }))
     }
   });
 });
 
 apiRouter.post('/submit', (req, res) => {
-  if (!req.session.user || req.session.user.role !== 'student')
-    return res.json({ success: false });
+  if (!req.session.user || req.session.user.role !== 'student') return res.json({ success: false });
 
-  const { testId, answers } = req.body;
+  const { testId, answers, attemptId, timeTakenSec } = req.body || {};
+  if (!testId) return res.json({ success: false, message: 'testId required' });
+
   const db = getDb();
   const test = db.prepare('SELECT * FROM tests WHERE id = ?').get(testId);
-  if (!test) return res.json({ success: false });
+  if (!test) return res.json({ success: false, message: 'Test not found' });
+
+  const attemptCount = db.prepare('SELECT COUNT(*) as c FROM results WHERE user_id = ? AND test_id = ?')
+    .get(req.session.user.id, testId)?.c || 0;
+
+  if (!test.allow_retake && attemptCount > 0) return res.json({ success: false, message: 'Retake not allowed' });
+  if (test.max_attempts && attemptCount >= test.max_attempts) return res.json({ success: false, message: 'Max attempts reached' });
+
+  let attempt = null;
+  if (attemptId) {
+    attempt = db.prepare('SELECT * FROM attempts WHERE id = ? AND user_id = ? AND test_id = ?')
+      .get(attemptId, req.session.user.id, testId);
+  }
+  if (!attempt) {
+    attempt = db.prepare(`
+      SELECT * FROM attempts
+      WHERE user_id = ? AND test_id = ? AND submitted_at IS NULL
+      ORDER BY attempt_no DESC
+      LIMIT 1
+    `).get(req.session.user.id, testId);
+  }
+
+  const attemptNo = attempt?.attempt_no || (attemptCount + 1);
+  const startedMs = attempt?.started_at ? Date.parse(attempt.started_at) : Date.now();
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+  const timeTaken = Number.isFinite(timeTakenSec) ? Math.max(elapsedSec, Math.floor(timeTakenSec)) : elapsedSec;
 
   const questions = db.prepare('SELECT * FROM questions WHERE test_id = ?').all(testId);
   let correct = 0;
-  questions.forEach(q => {
-    if (answers[q.id] !== undefined && parseInt(answers[q.id]) === q.correct) correct++;
-  });
+  const breakdown = [];
+  for (const q of questions) {
+    const selected = answers?.[q.id];
+    const selectedIdx = selected === undefined ? null : parseInt(selected, 10);
+    const isCorrect = selectedIdx !== null && selectedIdx === q.correct;
+    if (isCorrect) correct += 1;
+    breakdown.push({
+      questionId: q.id,
+      selectedIndex: selectedIdx,
+      correctIndex: q.correct,
+      isCorrect,
+      explanation: q.explanation || null
+    });
+  }
 
   const total = questions.length;
-  const score = Math.round((correct / total) * 100);
+  const score = total ? Math.round((correct / total) * 100) : 0;
   const resultId = uuidv4();
 
-  db.prepare('INSERT INTO results (id, user_id, test_id, correct, total, score) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(resultId, req.session.user.id, testId, correct, total, score);
+  db.prepare(`
+    INSERT INTO results (id, user_id, test_id, correct, total, score, attempt_no, time_taken_sec, answers_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    resultId,
+    req.session.user.id,
+    testId,
+    correct,
+    total,
+    score,
+    attemptNo,
+    timeTaken,
+    JSON.stringify(answers || {})
+  );
 
-  res.json({ success: true, correct, total, score });
+  if (attempt?.id) {
+    db.prepare('UPDATE attempts SET submitted_at = CURRENT_TIMESTAMP WHERE id = ?').run(attempt.id);
+  }
+
+  res.json({ success: true, correct, total, score, attemptNo, timeTakenSec: timeTaken, breakdown });
 });
 
 apiRouter.get('/my-results', (req, res) => {
@@ -226,18 +440,59 @@ apiRouter.post('/teacher/test', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false, message: 'Рұқсат жоқ' });
 
-  const { title, subject, group, duration, questions } = req.body;
+  const {
+    title,
+    subject,
+    group,
+    duration,
+    questions,
+    randomizeQuestions,
+    allowRetake,
+    maxAttempts,
+    password,
+    startAt,
+    endAt,
+    category
+  } = req.body || {};
   if (!title || !group || !questions || questions.length < 1)
     return res.json({ success: false, message: 'Деректер жетіспейді' });
 
   const testId = uuidv4();
   const db = getDb();
+  const passwordHash = password ? bcrypt.hashSync(String(password), 10) : null;
   const insertAll = db.transaction(() => {
-    db.prepare('INSERT INTO tests (id, title, subject, group_name, duration, created_by, active) VALUES (?, ?, ?, ?, ?, ?, 1)')
-      .run(testId, title, subject || '', group, parseInt(duration) || 20, req.session.user.email);
-    const qStmt = db.prepare('INSERT INTO questions (id, test_id, text, options, correct) VALUES (?, ?, ?, ?, ?)');
+    db.prepare(`
+      INSERT INTO tests (
+        id, title, subject, group_name, duration, created_by, active,
+        randomize_questions, allow_retake, max_attempts, password_hash, start_at, end_at, category
+      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      testId,
+      title,
+      subject || '',
+      group,
+      parseInt(duration, 10) || 20,
+      req.session.user.email,
+      randomizeQuestions ? 1 : 0,
+      allowRetake ? 1 : 0,
+      maxAttempts ? parseInt(maxAttempts, 10) : null,
+      passwordHash,
+      startAt || null,
+      endAt || null,
+      category || null
+    );
+
+    const qStmt = db.prepare('INSERT INTO questions (id, test_id, text, options, correct, explanation, media_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const q of questions) {
-      qStmt.run(uuidv4(), testId, q.text, JSON.stringify(q.options), q.correct);
+      qStmt.run(
+        uuidv4(),
+        testId,
+        q.text,
+        JSON.stringify(q.options),
+        q.correct,
+        q.explanation || null,
+        q.mediaUrl || q.media_url || null
+      );
     }
   });
 
@@ -254,6 +509,7 @@ apiRouter.get('/teacher/results', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'teacher')
     return res.json({ success: false });
 
+  const db = getDb();
   const results = db.prepare(`
     SELECT r.*, u.name as userName, u.email as userEmail, u.group_name as userGroup, t.title as testTitle
     FROM results r
@@ -263,6 +519,51 @@ apiRouter.get('/teacher/results', (req, res) => {
   `).all(req.session.user.email);
 
   res.json({ success: true, results });
+});
+
+apiRouter.get('/leaderboard', (req, res) => {
+  const db = getDb();
+  const testId = req.query.testId;
+  if (testId) {
+    const rows = db.prepare(`
+      SELECT u.name as userName, u.group_name as userGroup, r.score, r.submitted_at
+      FROM results r
+      JOIN users u ON r.user_id = u.id
+      WHERE r.test_id = ?
+      ORDER BY r.score DESC, r.submitted_at ASC
+      LIMIT 50
+    `).all(testId);
+    return res.json({ success: true, leaderboard: rows });
+  }
+
+  const rows = db.prepare(`
+    SELECT u.name as userName, u.group_name as userGroup, AVG(r.score) as avgScore, COUNT(*) as attempts
+    FROM results r
+    JOIN users u ON r.user_id = u.id
+    GROUP BY r.user_id
+    ORDER BY avgScore DESC, attempts DESC
+    LIMIT 50
+  `).all();
+  return res.json({ success: true, leaderboard: rows });
+});
+
+apiRouter.get('/teacher/stats', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'teacher') return res.json({ success: false });
+  const db = getDb();
+
+  const testsCount = db.prepare('SELECT COUNT(*) as c FROM tests WHERE created_by = ?').get(req.session.user.email)?.c || 0;
+  const results = db.prepare(`
+    SELECT r.score, r.submitted_at
+    FROM results r
+    JOIN tests t ON r.test_id = t.id
+    WHERE t.created_by = ?
+  `).all(req.session.user.email);
+
+  const totalSubmissions = results.length;
+  const avgScore = totalSubmissions ? Math.round(results.reduce((s, r) => s + (r.score || 0), 0) / totalSubmissions) : 0;
+  const topScores = [...results].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 10);
+
+  res.json({ success: true, stats: { testsCount, totalSubmissions, avgScore, topScores } });
 });
 
 apiRouter.delete('/teacher/test/:id', (req, res) => {
@@ -301,6 +602,17 @@ apiRouter.get('/admin/results', requireAdmin, (req, res) => {
     JOIN tests t ON r.test_id = t.id
   `).all();
   res.json({ success: true, results });
+});
+
+apiRouter.get('/admin/stats', requireAdmin, (req, res) => {
+  const db = getDb();
+  const usersCount = db.prepare('SELECT COUNT(*) as c FROM users').get()?.c || 0;
+  const testsCount = db.prepare('SELECT COUNT(*) as c FROM tests').get()?.c || 0;
+  const submissions = db.prepare('SELECT score FROM results').all();
+  const totalSubmissions = submissions.length;
+  const avgScore = totalSubmissions ? Math.round(submissions.reduce((s, r) => s + (r.score || 0), 0) / totalSubmissions) : 0;
+
+  res.json({ success: true, stats: { usersCount, testsCount, totalSubmissions, avgScore } });
 });
 
 apiRouter.get('/admin/export', requireAdmin, (req, res) => {

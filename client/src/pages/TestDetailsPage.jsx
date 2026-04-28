@@ -14,19 +14,34 @@ export default function TestDetailsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
+  const [attempt, setAttempt] = useState(null);
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [testPassword, setTestPassword] = useState('');
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setStatus('');
     setTest(null);
+    setNeedsPassword(false);
     api(`/api/test/${encodeURIComponent(id)}`)
       .then((data) => {
         if (!alive) return;
         if (data?.success) {
           setTest(data.test);
+          setAttempt(data.attempt || null);
           setStatus('');
+          if (typeof data?.attempt?.timeLeftSec === 'number') {
+            setTimeLeft(data.attempt.timeLeftSec);
+          } else {
+            setTimeLeft(null);
+          }
         } else {
+          if (data?.requiresPassword) {
+            setNeedsPassword(true);
+            setStatus(data?.message || 'Тестке пароль керек');
+            return;
+          }
           setStatus(data?.message || 'Тест табылмады.');
         }
       })
@@ -88,7 +103,12 @@ export default function TestDetailsPage() {
     try {
       const res = await api('/api/submit', {
         method: 'POST',
-        body: JSON.stringify({ testId: id, answers })
+        body: JSON.stringify({
+          testId: id,
+          answers,
+          attemptId: attempt?.id || null,
+          timeTakenSec: test?.duration ? (test.duration * 60 - (timeLeft ?? 0)) : null
+        })
       });
       if (res.success) {
         setResult(res);
@@ -117,6 +137,59 @@ export default function TestDetailsPage() {
 
       {loading ? (
         <Loader />
+      ) : needsPassword ? (
+        <Card className="auth-card">
+          <h1>Тестке пароль керек</h1>
+          <p style={{ color: 'var(--gray)', marginTop: 0 }}>Парольді енгізіңіз.</p>
+          <div className="form">
+            <div className="form-group">
+              <label className="form-label">Пароль</label>
+              <input
+                className="form-control"
+                type="password"
+                value={testPassword}
+                onChange={(e) => setTestPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+            </div>
+            <button
+              className="btn btn-primary btn-lg"
+              disabled={!testPassword || submitting}
+              onClick={async () => {
+                setSubmitting(true);
+                try {
+                  const ok = await api('/api/test/access', {
+                    method: 'POST',
+                    body: JSON.stringify({ testId: id, password: testPassword })
+                  });
+                  if (!ok.success) {
+                    alert(ok.message || 'Пароль қате');
+                    return;
+                  }
+                  setTestPassword('');
+                  setNeedsPassword(false);
+                  setLoading(true);
+                  const data = await api(`/api/test/${encodeURIComponent(id)}`);
+                  if (data?.success) {
+                    setTest(data.test);
+                    setAttempt(data.attempt || null);
+                    if (typeof data?.attempt?.timeLeftSec === 'number') setTimeLeft(data.attempt.timeLeftSec);
+                    setStatus('');
+                  } else {
+                    setStatus(data?.message || 'Қате');
+                  }
+                } catch (e) {
+                  alert(e?.message || 'Желі қатесі');
+                } finally {
+                  setSubmitting(false);
+                  setLoading(false);
+                }
+              }}
+            >
+              Ашу
+            </button>
+          </div>
+        </Card>
       ) : status ? (
         <div className="alert alert-danger">{status}</div>
       ) : result ? (
@@ -126,6 +199,21 @@ export default function TestDetailsPage() {
           <p style={{ fontSize: '1.1rem', color: 'var(--gray)', marginBottom: '2rem' }}>
             Сіздің нәтижеңіз: <strong style={{ color: 'var(--primary)', fontSize: '1.25rem' }}>{result.correct} / {result.total}</strong> ({result.score}%)
           </p>
+          {Array.isArray(result.breakdown) ? (
+            <div style={{ textAlign: 'left', maxWidth: 720, margin: '0 auto 2rem' }}>
+              <h3 style={{ margin: '0 0 0.75rem' }}>Түсіндірмелер</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {result.breakdown.map((b, idx) => (
+                  <div key={b.questionId} className="card" style={{ padding: '1rem', borderColor: b.isCorrect ? '#bbf7d0' : '#fecaca' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {idx + 1}. {b.isCorrect ? 'Дұрыс' : 'Қате'}
+                    </div>
+                    {b.explanation ? <div style={{ color: 'var(--gray)' }}>{b.explanation}</div> : <div style={{ color: 'var(--gray-light)' }}>Түсіндірме жоқ</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <Link to="/test" className="btn btn-primary btn-lg">
             Тізімге қайту
           </Link>
@@ -166,6 +254,16 @@ export default function TestDetailsPage() {
                   <div style={{ fontWeight: 600, fontSize: '1.05rem', marginBottom: '1.2rem', color: 'var(--dark)' }}>
                     <span style={{ color: 'var(--primary)', marginRight: '0.4rem' }}>{qIndex + 1}.</span> {q.text}
                   </div>
+                  {q.mediaUrl ? (
+                    <div style={{ margin: '-0.5rem 0 1rem' }}>
+                      <img
+                        src={q.mediaUrl}
+                        alt="question media"
+                        style={{ width: '100%', maxWidth: 560, borderRadius: 12, border: '1px solid var(--border)' }}
+                        loading="lazy"
+                      />
+                    </div>
+                  ) : null}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {(q.options || []).map((opt, optIndex) => {
                       const isSelected = answers[q.id] === optIndex;

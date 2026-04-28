@@ -8,6 +8,7 @@ export default function TeacherPage() {
   const [activeTab, setActiveTab] = useState('tests');
   const [tests, setTests] = useState([]);
   const [results, setResults] = useState([]);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Create Test Form State
@@ -16,7 +17,14 @@ export default function TeacherPage() {
   const [selectedGroups, setSelectedGroups] = useState([]);
   const [availableGroups] = useState(['БҚ-2305', 'БҚ-2304', 'БҚ-2404', 'БҚ-2405', 'БҚ-2504', 'БҚ-2505']);
   const [newDuration, setNewDuration] = useState('20');
-  const [questions, setQuestions] = useState([{ id: 1, text: '', options: ['', '', '', ''], correct: 0 }]);
+  const [randomizeQuestions, setRandomizeQuestions] = useState(true);
+  const [allowRetake, setAllowRetake] = useState(false);
+  const [maxAttempts, setMaxAttempts] = useState('');
+  const [testPassword, setTestPassword] = useState('');
+  const [category, setCategory] = useState('');
+  const [startAt, setStartAt] = useState('');
+  const [endAt, setEndAt] = useState('');
+  const [questions, setQuestions] = useState([{ id: 1, text: '', options: ['', '', '', ''], correct: 0, explanation: '', mediaUrl: '' }]);
   const [creating, setCreating] = useState(false);
 
   const loadData = async () => {
@@ -28,6 +36,12 @@ export default function TeacherPage() {
       ]);
       setTests(testsRes.tests || []);
       setResults(resultsRes.results || []);
+      try {
+        const statsRes = await api('/api/teacher/stats');
+        setStats(statsRes.stats || null);
+      } catch {
+        setStats(null);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -54,7 +68,7 @@ export default function TeacherPage() {
   };
 
   const handleAddQuestion = () => {
-    setQuestions([...questions, { id: Date.now(), text: '', options: ['', '', '', ''], correct: 0 }]);
+    setQuestions([...questions, { id: Date.now(), text: '', options: ['', '', '', ''], correct: 0, explanation: '', mediaUrl: '' }]);
   };
 
   const handleRemoveQuestion = (index) => {
@@ -79,7 +93,21 @@ export default function TeacherPage() {
         method: 'POST',
         body: JSON.stringify({
           title: newTitle, subject: newSubject, group: selectedGroups.join(', '), duration: newDuration,
-          questions: questions.map((q, idx) => ({ id: String(idx + 1), text: q.text, options: q.options, correct: q.correct }))
+          randomizeQuestions,
+          allowRetake,
+          maxAttempts: maxAttempts ? parseInt(maxAttempts, 10) : null,
+          password: testPassword || null,
+          category: category || null,
+          startAt: startAt || null,
+          endAt: endAt || null,
+          questions: questions.map((q, idx) => ({
+            id: String(idx + 1),
+            text: q.text,
+            options: q.options,
+            correct: q.correct,
+            explanation: q.explanation,
+            mediaUrl: q.mediaUrl
+          }))
         })
       });
       if (res.success) {
@@ -87,7 +115,14 @@ export default function TeacherPage() {
         setActiveTab('tests');
         // Reset form
         setNewTitle(''); setNewSubject(''); setSelectedGroups([]); setNewDuration('20');
-        setQuestions([{ id: 1, text: '', options: ['', '', '', ''], correct: 0 }]);
+        setRandomizeQuestions(true);
+        setAllowRetake(false);
+        setMaxAttempts('');
+        setTestPassword('');
+        setCategory('');
+        setStartAt('');
+        setEndAt('');
+        setQuestions([{ id: 1, text: '', options: ['', '', '', ''], correct: 0, explanation: '', mediaUrl: '' }]);
         loadData();
       } else {
         alert(res.message || 'Қате шықты');
