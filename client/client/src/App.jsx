@@ -8,6 +8,7 @@ import { useSession } from './hooks/useSession.js';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import TestDetailsPage from './pages/TestDetailsPage.jsx';
+import TeacherPage from './pages/TeacherPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import ProductsPage from './pages/ProductsPage.jsx';
 import ProductDetailsPage from './pages/ProductDetailsPage.jsx';
@@ -36,6 +37,14 @@ export default function App() {
           element={
             <RequireAuth me={me}>
               <TestDetailsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/teacher"
+          element={
+            <RequireAuth me={me}>
+              <TeacherPage me={me} />
             </RequireAuth>
           }
         />

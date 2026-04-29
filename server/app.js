@@ -574,6 +574,83 @@ apiRouter.delete('/teacher/test/:id', (req, res) => {
   res.json({ success: true });
 });
 
+apiRouter.post('/teacher/import', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'teacher')
+    return res.json({ success: false, message: 'Рұқсат жоқ' });
+
+  const { fileData, fileName } = req.body || {};
+  if (!fileData) return res.json({ success: false, message: 'Файл деректері жоқ' });
+
+  try {
+    // fileData ожидается как base64 string
+    const buffer = Buffer.from(fileData, 'base64');
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (data.length < 2) return res.json({ success: false, message: 'Файлда деректер жоқ' });
+
+    // Ожидаемый формат: строка 1 - заголовки, далее вопросы
+    // Колонки: Question, Option1, Option2, Option3, Option4, Correct (1-4), Explanation, MediaURL
+    const questions = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row[0]) continue; // пустая строка
+      const options = [row[1], row[2], row[3], row[4]].filter(o => o);
+      if (options.length < 2) continue;
+      const correct = parseInt(row[5], 10) - 1; // 1-based to 0-based
+      if (correct < 0 || correct >= options.length) continue;
+      questions.push({
+        text: row[0],
+        options,
+        correct,
+        explanation: row[6] || null,
+        mediaUrl: row[7] || null
+      });
+    }
+
+    if (questions.length === 0) return res.json({ success: false, message: 'Сұрақтар табылмады' });
+
+    // Создать тест с базовыми настройками
+    const testId = uuidv4();
+    const db = getDb();
+    const insertAll = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO tests (
+          id, title, subject, group_name, duration, created_by, active,
+          randomize_questions, allow_retake, max_attempts, password_hash, start_at, end_at, category
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, NULL, NULL, NULL, NULL)
+      `).run(
+        testId,
+        `Импорт ${fileName || new Date().toLocaleDateString()}`,
+        'Импорт',
+        'Все',
+        30,
+        req.session.user.email
+      );
+
+      const qStmt = db.prepare('INSERT INTO questions (id, test_id, text, options, correct, explanation, media_url) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const q of questions) {
+        qStmt.run(
+          uuidv4(),
+          testId,
+          q.text,
+          JSON.stringify(q.options),
+          q.correct,
+          q.explanation,
+          q.mediaUrl
+        );
+      }
+    });
+
+    insertAll();
+    res.json({ success: true, testId, questionsCount: questions.length });
+  } catch (e) {
+    console.error('Import error:', e);
+    res.json({ success: false, message: 'Файл өңдеу қатесі' });
+  }
+});
+
 // ── ADMIN ROUTES ──────────────────────────────────────────────────────────────
 function requireAdmin(req, res, next) {
   if (!req.session.user || req.session.user.role !== 'admin')

@@ -11,10 +11,13 @@ export default function TestDetailsPage() {
   const [test, setTest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
+  const [requiresPassword, setRequiresPassword] = useState(false);
+  const [password, setPassword] = useState('');
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [attemptId, setAttemptId] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
 
   useEffect(() => {
@@ -25,7 +28,12 @@ export default function TestDetailsPage() {
         if (!alive) return;
         if (data?.success) {
           setTest(data.test);
-          setTimeLeft(data.test.duration * 60);
+          setAttemptId(data.attempt?.id || null);
+          setTimeLeft(data.attempt?.timeLeftSec ?? (data.test.duration * 60));
+          setRequiresPassword(false);
+        } else if (data?.requiresPassword) {
+          setStatus(data?.message || 'Тестке пароль қажет');
+          setRequiresPassword(true);
         } else {
           setStatus(data?.message || 'Тест табылмады.');
         }
@@ -56,7 +64,7 @@ export default function TestDetailsPage() {
     try {
       const data = await api('/api/submit', {
         method: 'POST',
-        body: JSON.stringify({ testId: id, answers }),
+        body: JSON.stringify({ testId: id, answers, attemptId }),
       });
       if (data?.success) {
         setResult(data);
@@ -72,6 +80,52 @@ export default function TestDetailsPage() {
   }
 
   if (loading) return <div className="page"><Loader /></div>;
+  if (requiresPassword) {
+    return (
+      <div className="page">
+        <Breadcrumbs items={[{ to: '/', label: 'Home' }, { to: '/test', label: 'Тесттер' }, { label: 'Қауіпсіздік' }]} />
+        <Card style={{ maxWidth: 560, margin: '0 auto' }}>
+          <h2>Тестке пароль</h2>
+          <p style={{ color: 'var(--gray)' }}>{status}</p>
+          <div className="form-group">
+            <label className="form-label">Пароль</label>
+            <input
+              className="form-control"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Тест паролін енгізіңіз"
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                setStatus('');
+                try {
+                  const data = await api('/api/test/access', {
+                    method: 'POST',
+                    body: JSON.stringify({ testId: id, password }),
+                  });
+                  if (data?.success) {
+                    setRequiresPassword(false);
+                    setPassword('');
+                    window.location.reload();
+                  } else {
+                    setStatus(data?.message || 'Пароль қате');
+                  }
+                } catch (e) {
+                  setStatus(e?.message || 'Қате');
+                }
+              }}
+            >
+              Жіберу
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
   if (status && !test) return <div className="page"><div style={{ color: 'var(--danger)' }}>{status}</div></div>;
 
   // Нәтиже экраны

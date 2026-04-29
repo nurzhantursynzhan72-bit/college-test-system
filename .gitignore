@@ -3,3 +3,6 @@ node_modules/
 temp/
 *.log
 .env
+
+.vercel
+.env*.local

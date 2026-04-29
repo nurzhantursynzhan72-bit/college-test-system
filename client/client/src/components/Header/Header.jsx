@@ -24,6 +24,11 @@ export default function Header({ user, onLogout }) {
         <NavLink to="/test" className={linkClass}>
           Тесттер
         </NavLink>
+        {isLoggedIn && (user.role === 'teacher' || user.role === 'admin') ? (
+          <NavLink to="/teacher" className={linkClass}>
+            Мұғалім
+          </NavLink>
+        ) : null}
 
         {!isLoggedIn ? (
           <>
