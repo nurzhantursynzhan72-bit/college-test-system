@@ -245,11 +245,29 @@ apiRouter.get('/test/:id', (req, res) => {
     const attemptCount = db.prepare('SELECT COUNT(*) as c FROM results WHERE user_id = ? AND test_id = ?')
       .get(req.session.user.id, test.id)?.c || 0;
 
-    if (!test.allow_retake && attemptCount > 0) {
-      return res.json({ success: false, message: 'Бұл тестті қайта тапсыруға болмайды' });
-    }
-    if (test.max_attempts && attemptCount >= test.max_attempts) {
-      return res.json({ success: false, message: 'Лимит аяқталды (max attempts)' });
+    if (attemptCount > 0) {
+      if (!test.allow_retake) {
+        return res.json({ success: false, message: 'Бұл тестті қайта тапсыруға болмайды' });
+      }
+
+      const lastResult = db.prepare(`
+        SELECT score, submitted_at FROM results 
+        WHERE user_id = ? AND test_id = ? 
+        ORDER BY submitted_at DESC LIMIT 1
+      `).get(req.session.user.id, test.id);
+
+      if (lastResult && lastResult.score < 50) {
+        const lastSubmittedMs = Date.parse(lastResult.submitted_at);
+        const cooldownMs = 24 * 60 * 60 * 1000;
+        if (nowMs - lastSubmittedMs < cooldownMs) {
+          const hoursLeft = Math.ceil((cooldownMs - (nowMs - lastSubmittedMs)) / (60 * 60 * 1000));
+          return res.json({ success: false, message: `Нәтижеңіз төмен болғандықтан (50%-дан аз), қайта тапсыру үшін ${hoursLeft} сағат күтіңіз.` });
+        }
+      }
+
+      if (test.max_attempts && attemptCount >= test.max_attempts) {
+        return res.json({ success: false, message: 'Лимит аяқталды (max attempts)' });
+      }
     }
 
     // Start/reuse active attempt
@@ -412,8 +430,50 @@ apiRouter.get('/my-results', (req, res) => {
     SELECT r.*, t.title as testTitle 
     FROM results r JOIN tests t ON r.test_id = t.id
     WHERE r.user_id = ?
+    ORDER BY r.submitted_at DESC
   `).all(req.session.user.id);
   res.json({ success: true, results });
+});
+
+apiRouter.get('/leaderboard', (req, res) => {
+  const db = getDb();
+  const results = db.prepare(`
+    SELECT r.user_id as userId, u.name as userName, u.group_name as userGroup, r.score 
+    FROM results r JOIN users u ON r.user_id = u.id
+  `).all();
+  
+  const userStats = {};
+  results.forEach(r => {
+    if (!userStats[r.userId]) userStats[r.userId] = { userId: r.userId, userName: r.userName, userGroup: r.userGroup, totalScore: 0, attempts: 0 };
+    userStats[r.userId].totalScore += r.score || 0;
+    userStats[r.userId].attempts += 1;
+  });
+  
+  const leaderboard = Object.values(userStats)
+    .map(u => ({ ...u, avgScore: u.totalScore / u.attempts }))
+    .sort((a, b) => b.avgScore - a.avgScore)
+    .slice(0, 50);
+
+  res.json({ success: true, leaderboard });
+});
+
+apiRouter.get('/profile/:id', (req, res) => {
+  const db = getDb();
+  const userId = req.params.id;
+  const user = db.prepare('SELECT id, name, email, group_name as groupName FROM users WHERE id = ?').get(userId);
+  if (!user) return res.json({ success: false, message: 'Оқушы табылмады' });
+
+  const results = db.prepare(`
+    SELECT r.score, r.submitted_at, t.title as testTitle, t.subject 
+    FROM results r JOIN tests t ON r.test_id = t.id
+    WHERE r.user_id = ?
+    ORDER BY r.submitted_at DESC
+  `).all(userId);
+
+  const totalSubmissions = results.length;
+  const avgScore = totalSubmissions ? Math.round(results.reduce((s, r) => s + (r.score || 0), 0) / totalSubmissions) : 0;
+
+  res.json({ success: true, profile: { user, results, totalSubmissions, avgScore } });
 });
 
 // ── TEACHER ROUTES ────────────────────────────────────────────────────────────
@@ -553,9 +613,10 @@ apiRouter.get('/teacher/stats', (req, res) => {
 
   const testsCount = db.prepare('SELECT COUNT(*) as c FROM tests WHERE created_by = ?').get(req.session.user.email)?.c || 0;
   const results = db.prepare(`
-    SELECT r.score, r.submitted_at
+    SELECT r.score, r.submitted_at, u.group_name
     FROM results r
     JOIN tests t ON r.test_id = t.id
+    JOIN users u ON r.user_id = u.id
     WHERE t.created_by = ?
   `).all(req.session.user.email);
 
@@ -563,7 +624,20 @@ apiRouter.get('/teacher/stats', (req, res) => {
   const avgScore = totalSubmissions ? Math.round(results.reduce((s, r) => s + (r.score || 0), 0) / totalSubmissions) : 0;
   const topScores = [...results].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 10);
 
-  res.json({ success: true, stats: { testsCount, totalSubmissions, avgScore, topScores } });
+  const groupStats = {};
+  results.forEach(r => {
+    const g = r.group_name || 'Белгісіз';
+    if (!groupStats[g]) groupStats[g] = { totalScore: 0, count: 0 };
+    groupStats[g].totalScore += r.score || 0;
+    groupStats[g].count += 1;
+  });
+  
+  const groups = Object.keys(groupStats).map(g => ({
+    name: g,
+    avgScore: Math.round(groupStats[g].totalScore / groupStats[g].count)
+  }));
+
+  res.json({ success: true, stats: { testsCount, totalSubmissions, avgScore, topScores, groups } });
 });
 
 apiRouter.delete('/teacher/test/:id', (req, res) => {

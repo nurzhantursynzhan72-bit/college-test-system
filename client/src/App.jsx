@@ -13,6 +13,9 @@ import ProductsPage from './pages/ProductsPage.jsx';
 import ProductDetailsPage from './pages/ProductDetailsPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import TeacherPage from './pages/TeacherPage.jsx';
+import LeaderboardPage from './pages/LeaderboardPage.jsx';
+import MyResultsPage from './pages/MyResultsPage.jsx';
+import ProfilePage from './pages/ProfilePage.jsx';
 
 export default function App() {
   const { me, login, logout } = useSession();
@@ -24,6 +27,17 @@ export default function App() {
 
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/:id" element={<ProductDetailsPage />} />
+        <Route path="/leaderboard" element={<LeaderboardPage />} />
+        <Route path="/profile/:id" element={<ProfilePage />} />
+        
+        <Route
+          path="/my-results"
+          element={
+            <RequireAuth me={me}>
+              <MyResultsPage />
+            </RequireAuth>
+          }
+        />
 
         <Route
           path="/admin"

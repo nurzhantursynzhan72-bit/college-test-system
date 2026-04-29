@@ -44,8 +44,22 @@ export default function AdminPage() {
     }
   };
 
-  const handleExport = () => {
-    window.open('/api/admin/export', '_blank');
+  const handleExport = async () => {
+    try {
+      const resp = await fetch('/api/admin/export', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Export failed');
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'college-results.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Экспорт кезінде қате кетті');
+    }
   };
 
   if (loading) {

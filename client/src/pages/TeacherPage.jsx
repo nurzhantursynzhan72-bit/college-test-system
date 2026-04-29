@@ -3,6 +3,10 @@ import { api } from '../api.js';
 import Card from '../components/Card/Card.jsx';
 import Loader from '../components/Loader/Loader.jsx';
 import Button from '../components/Button/Button.jsx';
+import { Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 export default function TeacherPage() {
   const [activeTab, setActiveTab] = useState('tests');
@@ -155,6 +159,7 @@ export default function TeacherPage() {
       <div className="tab-nav">
         <button className={`tab-link ${activeTab === 'tests' ? 'active' : ''}`} onClick={() => setActiveTab('tests')}>Менің тесттерім ({tests.length})</button>
         <button className={`tab-link ${activeTab === 'results' ? 'active' : ''}`} onClick={() => setActiveTab('results')}>Оқушылар нәтижесі ({results.length})</button>
+        <button className={`tab-link ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>Аналитика</button>
         <button className={`tab-link ${activeTab === 'create' ? 'active' : ''}`} onClick={() => setActiveTab('create')}>Тест құру</button>
       </div>
 
@@ -230,6 +235,35 @@ export default function TeacherPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </Card>
+      )}
+
+      {activeTab === 'analytics' && stats && (
+        <Card>
+          <h3 style={{ marginTop: 0 }}>Топтық аналитика (Орташа балл)</h3>
+          <div style={{ height: '400px', marginTop: '2rem' }}>
+            {stats.groups && stats.groups.length > 0 ? (
+              <Bar 
+                data={{
+                  labels: stats.groups.map(g => g.name),
+                  datasets: [{
+                    label: 'Орташа балл (%)',
+                    data: stats.groups.map(g => g.avgScore),
+                    backgroundColor: 'rgba(99, 102, 241, 0.6)',
+                    borderColor: 'rgba(99, 102, 241, 1)',
+                    borderWidth: 1,
+                  }]
+                }} 
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: { y: { beginAtZero: true, max: 100 } }
+                }} 
+              />
+            ) : (
+              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray)' }}>Жеткілікті мәлімет жоқ</div>
+            )}
           </div>
         </Card>
       )}

@@ -4,6 +4,8 @@ import Breadcrumbs from '../components/Breadcrumbs/Breadcrumbs.jsx';
 import Card from '../components/Card/Card.jsx';
 import Loader from '../components/Loader/Loader.jsx';
 import { api } from '../api.js';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 export default function TestDetailsPage() {
   const { id } = useParams();
@@ -17,6 +19,7 @@ export default function TestDetailsPage() {
   const [attempt, setAttempt] = useState(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [testPassword, setTestPassword] = useState('');
+  const [warnings, setWarnings] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -57,6 +60,30 @@ export default function TestDetailsPage() {
       alive = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!test || result || status !== '' || submitting || timeLeft === null) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setWarnings(w => {
+          const newWarnings = w + 1;
+          if (newWarnings >= 3) {
+            alert('Сіз 3 рет басқа бетке өттіңіз! Тест автоматты түрде аяқталды.');
+            handleSubmit(true);
+          } else {
+            alert(`ЕСКЕРТУ! Тест кезінде басқа бетке өтуге немесе жабуға болмайды.\nСізде тағы ${3 - newWarnings} мүмкіндік қалды. Одан кейін тест автоматты түрде тапсырылады.`);
+          }
+          return newWarnings;
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [test, result, status, submitting, timeLeft, answers]); // Added answers to deps if handleSubmit needs it, but it's okay because we use autoSubmit=true
 
   useEffect(() => {
     if (test?.duration && !result && status === '' && timeLeft === null) {
@@ -119,6 +146,56 @@ export default function TestDetailsPage() {
       alert('Желі қатесі');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const downloadCertificate = async () => {
+    const certDiv = document.createElement('div');
+    certDiv.style.width = '800px';
+    certDiv.style.height = '600px';
+    certDiv.style.padding = '40px';
+    certDiv.style.background = 'white';
+    certDiv.style.border = '20px solid var(--primary)';
+    certDiv.style.boxSizing = 'border-box';
+    certDiv.style.textAlign = 'center';
+    certDiv.style.fontFamily = 'Arial, sans-serif';
+    certDiv.style.position = 'absolute';
+    certDiv.style.top = '-9999px';
+    
+    certDiv.innerHTML = `
+      <h1 style="font-size: 48px; color: var(--primary); margin-top: 50px;">ЖЕТІСТІК СЕРТИФИКАТЫ</h1>
+      <p style="font-size: 24px; margin-top: 40px;">Осы сертификат</p>
+      <h2 style="font-size: 36px; border-bottom: 2px solid #ccc; display: inline-block; padding-bottom: 10px; margin: 20px 0;">Оқушы</h2>
+      <p style="font-size: 24px;">келесі тестті сәтті аяқтағаны үшін беріледі:</p>
+      <h3 style="font-size: 30px; color: #333;">${test?.title}</h3>
+      <p style="font-size: 28px; margin-top: 30px;">Нәтиже: <strong>${result?.score}%</strong></p>
+      <div style="margin-top: 60px; display: flex; justify-content: space-between; padding: 0 50px;">
+        <div>
+          <div style="border-bottom: 1px solid #000; width: 150px; margin-bottom: 5px;"></div>
+          <span>Колледж Тест Жүйесі</span>
+        </div>
+        <div>
+          <div style="border-bottom: 1px solid #000; width: 150px; margin-bottom: 5px;">${new Date().toLocaleDateString('kk-KZ')}</div>
+          <span>Күні</span>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(certDiv);
+    try {
+      const canvas = await html2canvas(certDiv, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [800, 600]
+      });
+      pdf.addImage(imgData, 'PNG', 0, 0, 800, 600);
+      pdf.save(`Сертификат_${test?.title}.pdf`);
+    } catch(e) {
+      alert('Сертификат жүктеу кезінде қате кетті');
+    } finally {
+      document.body.removeChild(certDiv);
     }
   };
 
@@ -214,9 +291,17 @@ export default function TestDetailsPage() {
               </div>
             </div>
           ) : null}
-          <Link to="/test" className="btn btn-primary btn-lg">
-            Тізімге қайту
-          </Link>
+          
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+            <Link to="/test" className="btn btn-primary btn-lg">
+              Тізімге қайту
+            </Link>
+            {result.score >= 80 && (
+              <button className="btn btn-outline btn-lg" onClick={downloadCertificate} style={{ borderColor: '#fbbf24', color: '#b45309', background: '#fef3c7' }}>
+                🎓 Сертификат жүктеу
+              </button>
+            )}
+          </div>
         </Card>
       ) : (
         <Card>
@@ -229,6 +314,11 @@ export default function TestDetailsPage() {
               <span style={{ padding: '0.2rem 0.6rem', background: timeLeft <= 60 ? '#fee2e2' : '#dcfce7', color: timeLeft <= 60 ? '#dc2626' : '#16a34a', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '1rem' }}>
                 Таймер: {formatTime(timeLeft)}
               </span>
+              {warnings > 0 && (
+                <span style={{ padding: '0.2rem 0.6rem', background: '#fee2e2', color: '#dc2626', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '0.9rem', border: '1px solid #f87171' }}>
+                  Ескертулер: {warnings}/3
+                </span>
+              )}
             </div>
           </div>
 

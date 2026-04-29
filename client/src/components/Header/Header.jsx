@@ -10,16 +10,16 @@ export default function Header({ user, onLogout }) {
   return (
     <nav className="navbar">
       <Link to="/" className="navbar-brand">
-        <div className="logo-icon" />
-        <span>EduTest</span>
+        <span style={{ fontSize: '1.5rem' }}>🎓</span>
+        <span>AstanaBiz</span>
       </Link>
 
       <div className="navbar-nav">
         <NavLink to="/" end className={linkClass}>
           Басты бет
         </NavLink>
-        <NavLink to="/products" className={linkClass}>
-          Products
+        <NavLink to="/leaderboard" className={linkClass}>
+          Рейтинг 🏆
         </NavLink>
         
         {isLoggedIn && user.role === 'admin' && (
@@ -37,6 +37,12 @@ export default function Header({ user, onLogout }) {
         {(!isLoggedIn || user.role === 'student') && (
           <NavLink to="/test" className={linkClass}>
             Тесттер
+          </NavLink>
+        )}
+
+        {isLoggedIn && user.role === 'student' && (
+          <NavLink to="/my-results" className={linkClass}>
+            Менің нәтижелерім
           </NavLink>
         )}
 
